@@ -17,14 +17,14 @@ class EarlyStopping():
         Args:
             patience (int): How long to wait after last time validation loss improved.
                             Default: 7
-            verbose (bool): If True, prints a message for each validation loss improvement. 
+            verbose (bool): If True, prints a message for each validation loss improvement.
                             Default: False
             delta (float): Minimum change in the monitored quantity to qualify as an improvement.
                             Default: 0
             path (str): Path for the checkpoint to be saved to.
                             Default: 'checkpoint.pt'
             trace_func (function): trace print function.
-                            Default: print            
+                            Default: print
         """
         if not os.path.exists(path):
             os.makedirs(path)
@@ -35,7 +35,7 @@ class EarlyStopping():
         self.best_score = None  # record the best score
         self.best_epoch = 0 # record the best epoch
         self.early_stop = False
-        self.val_loss_min = np.Inf
+        self.val_loss_min = np.inf
         self.delta = delta
         self.path = os.path.join(path, "pytorch_model.bin")
         self.trace_func = trace_func

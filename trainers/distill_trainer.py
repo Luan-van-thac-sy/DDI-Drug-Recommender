@@ -34,7 +34,7 @@ class DistillTrainer(Trainer):
         '''Load pretrain model or not'''
         config = BertConfig(vocab_size_or_config_json_file=len(self.tokenizer.vocab.word2idx))
         config.hidden_size = self.args.hidden_size
-        if self.args.model_name == "pnet":
+        if self.args.model_name == "leader":
             self.model = LEADER(config, self.args, self.tokenizer, self.device, self.profile_tokenizer)
 
         if not self.args.offline:

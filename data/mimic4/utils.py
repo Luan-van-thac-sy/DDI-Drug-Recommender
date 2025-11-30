@@ -25,26 +25,26 @@ class Voc(object):
 ##### process medications #####
 # load med data
 def med_process(med_file):
-    med_pd = pd.read_csv(med_file, dtype={"ndc": "category"})
+    med_pd = pd.read_csv(med_file, dtype={"NDC": "category"})
 
     # remove redundant columnns
     remove_columns = med_pd.columns.values.tolist()
-    for remain_column in ["subject_id", "hadm_id", "starttime", "ndc", "drug"]:
+    for remain_column in ["SUBJECT_ID", "HADM_ID", "STARTTIME", "NDC", "DRUG"]:
         remove_columns.remove(remain_column)
     med_pd.drop(
         columns=remove_columns,
         axis=1,
         inplace=True,
     )
-    med_pd.drop(index=med_pd[med_pd["ndc"] == "0"].index, axis=0, inplace=True)
+    med_pd.drop(index=med_pd[med_pd["NDC"] == "0"].index, axis=0, inplace=True)
     med_pd.fillna(method="pad", inplace=True)
     med_pd.dropna(inplace=True)
     med_pd.drop_duplicates(inplace=True)
-    med_pd["starttime"] = pd.to_datetime(
-        med_pd["starttime"], format="%Y-%m-%d %H:%M:%S"
+    med_pd["STARTTIME"] = pd.to_datetime(
+        med_pd["STARTTIME"], format="%Y-%m-%d %H:%M:%S"
     )
     med_pd.sort_values(
-        by=["subject_id", "hadm_id", "starttime"], inplace=True
+        by=["SUBJECT_ID", "HADM_ID", "STARTTIME"], inplace=True
     )
     med_pd = med_pd.reset_index(drop=True)
     med_pd = med_pd.drop_duplicates()
@@ -56,7 +56,7 @@ def med_process(med_file):
 # ATC3-to-drugname
 def ATC3toDrug(med_pd):
     atc3toDrugDict = {}
-    for atc3, drugname in med_pd[["ATC3", "drug"]].values:
+    for atc3, drugname in med_pd[["ATC3", "DRUG"]].values:
         if atc3 in atc3toDrugDict:
             atc3toDrugDict[atc3].add(drugname)
         else:
@@ -110,24 +110,24 @@ def codeMapping2atc4(med_pd, ndc2RXCUI_file, RXCUI2atc4_file):
 # visit >= 2
 def process_visit_lg2(med_pd):
     a = (
-        med_pd[["subject_id", "hadm_id"]]
-        .groupby(by="subject_id")["hadm_id"]
+        med_pd[["SUBJECT_ID", "HADM_ID"]]
+        .groupby(by="SUBJECT_ID")["HADM_ID"]
         .unique()
         .reset_index()
     )
-    a["hadm_id_len"] = a["hadm_id"].map(lambda x: len(x))
-    a = a[a["hadm_id_len"] > 1]
+    a["HADM_ID_LEN"] = a["HADM_ID"].map(lambda x: len(x))
+    a = a[a["HADM_ID_LEN"] > 1]
     return a
 
 
 def process_visit_lg1(med_pd):
     a = (
-        med_pd[["subject_id", "hadm_id"]]
-        .groupby(by="subject_id")["hadm_id"]
+        med_pd[["SUBJECT_ID", "HADM_ID"]]
+        .groupby(by="SUBJECT_ID")["HADM_ID"]
         .unique()
         .reset_index()
     )
-    a["hadm_id_len"] = a["hadm_id"].map(lambda x: len(x))
+    a["HADM_ID_LEN"] = a["HADM_ID"].map(lambda x: len(x))
 
     def convert_prob(x):
         if x == 1:  # if len == 1, return a 0-1 probability
@@ -137,7 +137,7 @@ def process_visit_lg1(med_pd):
 
     #a["HADM_ID_Len"] = a["HADM_ID_Len"].map(lambda x: convert_prob(x))
     #a = a[a["HADM_ID_Len"] > 0.8]
-    len_m = a[a["hadm_id_len"]>1].shape[0]
+    len_m = a[a["HADM_ID_LEN"]>1].shape[0]
     len_s = a.shape[0] - len_m
     print("The number of single-visit is %d, multi-visit is %d." % (len_s, len_m))
     return a
@@ -162,21 +162,21 @@ def filter_300_most_med(med_pd):
 def diag_process(diag_file):
     diag_pd = pd.read_csv(diag_file)
     diag_pd.dropna(inplace=True)
-    diag_pd.drop(columns=["seq_num", "icd_version"], inplace=True)
+    diag_pd.drop(columns=["SEQ_NUM", "ICD_VERSION"], inplace=True)
     diag_pd.drop_duplicates(inplace=True)
-    diag_pd.sort_values(by=["subject_id", "hadm_id"], inplace=True)
+    diag_pd.sort_values(by=["SUBJECT_ID", "HADM_ID"], inplace=True)
     diag_pd = diag_pd.reset_index(drop=True)
 
     def filter_2000_most_diag(diag_pd):
         diag_count = (
-            diag_pd.groupby(by=["icd_code"])
+            diag_pd.groupby(by=["ICD_CODE"])
             .size()
             .reset_index()
             .rename(columns={0: "count"})
             .sort_values(by=["count"], ascending=False)
             .reset_index(drop=True)
         )
-        diag_pd = diag_pd[diag_pd["icd_code"].isin(diag_count.loc[:1999, "icd_code"])]
+        diag_pd = diag_pd[diag_pd["ICD_CODE"].isin(diag_count.loc[:1999, "ICD_CODE"])]
 
         return diag_pd.reset_index(drop=True)
 
@@ -187,11 +187,11 @@ def diag_process(diag_file):
 
 ##### process procedure #####
 def procedure_process(procedure_file):
-    pro_pd = pd.read_csv(procedure_file, dtype={"icd_code": "category"})
-    pro_pd.drop(columns=["icd_version", "chartdate"], inplace=True)
+    pro_pd = pd.read_csv(procedure_file, dtype={"ICD_CODE": "category"})
+    pro_pd.drop(columns=["ICD_VERSION", "CHART_DATE"], inplace=True)
     pro_pd.drop_duplicates(inplace=True)
-    pro_pd.sort_values(by=["subject_id", "hadm_id", "seq_num"], inplace=True)
-    pro_pd.drop(columns=["seq_num"], inplace=True)
+    pro_pd.sort_values(by=["SUBJECT_ID", "HADM_ID", "SEQ_NUM"], inplace=True)
+    pro_pd.drop(columns=["SEQ_NUM"], inplace=True)
     pro_pd = filter_1000_most_pro(pro_pd)
     pro_pd.drop_duplicates(inplace=True)
     pro_pd.reset_index(drop=True, inplace=True)
@@ -201,14 +201,14 @@ def procedure_process(procedure_file):
 
 def filter_1000_most_pro(pro_pd):
     pro_count = (
-        pro_pd.groupby(by=["icd_code"])
+        pro_pd.groupby(by=["ICD_CODE"])
         .size()
         .reset_index()
         .rename(columns={0: "count"})
         .sort_values(by=["count"], ascending=False)
         .reset_index(drop=True)
     )
-    pro_pd = pro_pd[pro_pd["icd_code"].isin(pro_count.loc[:1000, "icd_code"])]
+    pro_pd = pro_pd[pro_pd["ICD_CODE"].isin(pro_count.loc[:1000, "ICD_CODE"])]
 
     return pro_pd.reset_index(drop=True)
 
@@ -216,38 +216,38 @@ def filter_1000_most_pro(pro_pd):
 ###### combine three tables #####
 def combine_process(med_pd, diag_pd, pro_pd):
 
-    med_pd_key = med_pd[["subject_id", "hadm_id"]].drop_duplicates()
-    diag_pd_key = diag_pd[["subject_id", "hadm_id"]].drop_duplicates()
-    pro_pd_key = pro_pd[["subject_id", "hadm_id"]].drop_duplicates()
+    med_pd_key = med_pd[["SUBJECT_ID", "HADM_ID"]].drop_duplicates()
+    diag_pd_key = diag_pd[["SUBJECT_ID", "HADM_ID"]].drop_duplicates()
+    pro_pd_key = pro_pd[["SUBJECT_ID", "HADM_ID"]].drop_duplicates()
 
     combined_key = med_pd_key.merge(
-        diag_pd_key, on=["subject_id", "hadm_id"], how="inner"
+        diag_pd_key, on=["SUBJECT_ID", "HADM_ID"], how="inner"
     )
     combined_key = combined_key.merge(
-        pro_pd_key, on=["subject_id", "hadm_id"], how="inner"
+        pro_pd_key, on=["SUBJECT_ID", "HADM_ID"], how="inner"
     )
 
-    diag_pd = diag_pd.merge(combined_key, on=["subject_id", "hadm_id"], how="inner")
-    med_pd = med_pd.merge(combined_key, on=["subject_id", "hadm_id"], how="inner")
-    pro_pd = pro_pd.merge(combined_key, on=["subject_id", "hadm_id"], how="inner")
+    diag_pd = diag_pd.merge(combined_key, on=["SUBJECT_ID", "HADM_ID"], how="inner")
+    med_pd = med_pd.merge(combined_key, on=["SUBJECT_ID", "HADM_ID"], how="inner")
+    pro_pd = pro_pd.merge(combined_key, on=["SUBJECT_ID", "HADM_ID"], how="inner")
 
     # flatten and merge
     diag_pd = (
-        diag_pd.groupby(by=["subject_id", "hadm_id"])["icd_code"]
+        diag_pd.groupby(by=["SUBJECT_ID", "HADM_ID"])["ICD_CODE"]
         .unique()
         .reset_index()
     )
-    med_pd = med_pd.groupby(by=["subject_id", "hadm_id"])["ATC3"].unique().reset_index()
+    med_pd = med_pd.groupby(by=["SUBJECT_ID", "HADM_ID"])["ATC3"].unique().reset_index()
     pro_pd = (
-        pro_pd.groupby(by=["subject_id", "hadm_id"])["icd_code"]
+        pro_pd.groupby(by=["SUBJECT_ID", "HADM_ID"])["ICD_CODE"]
         .unique()
         .reset_index()
-        .rename(columns={"icd_code": "pro_code"})
+        .rename(columns={"ICD_CODE": "pro_code"})
     )
     med_pd["ATC3"] = med_pd["ATC3"].map(lambda x: list(x))
     pro_pd["pro_code"] = pro_pd["pro_code"].map(lambda x: list(x))
-    data = diag_pd.merge(med_pd, on=["subject_id", "hadm_id"], how="inner")
-    data = data.merge(pro_pd, on=["subject_id", "hadm_id"], how="inner")
+    data = diag_pd.merge(med_pd, on=["SUBJECT_ID", "HADM_ID"], how="inner")
+    data = data.merge(pro_pd, on=["SUBJECT_ID", "HADM_ID"], how="inner")
     #     data['ICD9_CODE_Len'] = data['ICD9_CODE'].map(lambda x: len(x))
     data["ATC3_num"] = data["ATC3"].map(lambda x: len(x))
 
@@ -270,13 +270,13 @@ class Voc(object):
 # create final records
 def create_patient_record(df, diag_voc, med_voc, pro_voc, ehr_sequence_file):
     records = []  # (patient, code_kind:3, codes)  code_kind:diag, proc, med
-    for subject_id in df["subject_id"].unique():
-        item_df = df[df["subject_id"] == subject_id]
+    for subject_id in df["SUBJECT_ID"].unique():
+        item_df = df[df["SUBJECT_ID"] == subject_id]
         patient = []
         for index, row in item_df.iterrows():
             admission = []
-            admission.append([diag_voc.word2idx[i] for i in row["icd_code"]])
-            admission.append([pro_voc.word2idx[i] for i in row["pro_code"]])
+            admission.append([diag_voc.word2idx[i] for i in row["ICD_CODE"]])
+            admission.append([pro_voc.word2idx[i] for i in row["PRO_CODE"]])
             admission.append([med_voc.word2idx[i] for i in row["ATC3"]])
             patient.append(admission)
         records.append(patient)

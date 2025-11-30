@@ -96,11 +96,3 @@ def multi_label_metric(y_gt, y_pred, y_prob):
     avg_f1 = average_f1(avg_prc, avg_recall)
 
     return ja, prauc, np.mean(avg_prc), np.mean(avg_recall), np.mean(avg_f1)
-
-
-
-
-
-
-
-
