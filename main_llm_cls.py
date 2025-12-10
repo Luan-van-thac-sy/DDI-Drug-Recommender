@@ -63,9 +63,9 @@ def train():
 
     # load diag, proc, med word2id tokenizer
     # Extract dataset name (mimic3 or mimic4) from cache_dir or train_file
-    if data_args.cache_dir:
+    if model_args.cache_dir:
         # Extract dataset name from cache_dir (e.g., "data/mimic4/handled/" -> "mimic4")
-        dataset_name = data_args.cache_dir.split('/')[1] if '/' in data_args.cache_dir else "mimic3"
+        dataset_name = model_args.cache_dir.split('/')[1] if '/' in model_args.cache_dir else "mimic3"
     elif data_args.train_file:
         # Extract dataset name from train_file (e.g., "data/mimic4/handled/train_0104.json" -> "mimic4")
         dataset_name = data_args.train_file.split('/')[1] if '/' in data_args.train_file else "mimic3"
