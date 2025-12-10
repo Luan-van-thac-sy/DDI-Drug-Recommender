@@ -7,7 +7,7 @@ import ast
 import dill
 
 # Load the FLAME test dataset
-flame_df = pd.read_csv("/content/DDI-Drug-Recommender/data/flame_test.csv")
+flame_df = pd.read_csv("/content/DDI-Drug-Recommender/baseline/flame_test.csv")
 
 # Load the vocabulary for tokenization
 tokenizer = dill.load(open("/content/DDI-Drug-Recommender/data/mimic3/handled/voc_final.pkl", "rb"))
