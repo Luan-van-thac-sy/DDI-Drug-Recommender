@@ -140,12 +140,13 @@ def train():
         column_names = raw_datasets["validation"].column_names
     elif training_args.do_predict:
         target_dataset = raw_datasets["test"]
-        # preprocess_func = llama_eval_cls(data_args, model_args, tokenizer, ehr_tokenizer)
         column_names = raw_datasets["test"].column_names
-        # data_collator = DataCollatorForSeq2Seq(tokenizer, model=model, label_pad_token_id=tokenizer.pad_token_id,
-        #                                        pad_to_multiple_of=None, padding=False)
 
-    preprocess_func = llama_train_cls(data_args, model_args, tokenizer, ehr_tokenizer)
+    # Use appropriate preprocessing function based on mode
+    if training_args.do_train:
+        preprocess_func = llama_train_cls(data_args, model_args, tokenizer, ehr_tokenizer)
+    else:
+        preprocess_func = llama_eval_cls(data_args, model_args, tokenizer, ehr_tokenizer)
     data_collator = LongestSequenceCollator(tokenizer)
 
     with training_args.main_process_first(desc="Dataset map pre-processing"):
