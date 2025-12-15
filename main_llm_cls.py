@@ -222,13 +222,31 @@ def train():
 
             ja, prauc, avg_p, avg_r, avg_f1, drug_code_results = evaluate_jsonlines(output_prediction_file, ehr_tokenizer)   # output the MedRec metrics
 
-            # Save drug codes to file
-            drug_codes_output_file = os.path.join(training_args.output_dir, "drug_codes_comparison.json")
+            # Save drug codes to files (both JSON and CSV)
+            drug_codes_json_file = os.path.join(training_args.output_dir, "drug_codes_comparison.json")
+            drug_codes_csv_file = os.path.join(training_args.output_dir, "drug_codes_comparison.csv")
 
-            with open(drug_codes_output_file, "w", encoding="utf-8") as f:
+            # Save JSON (keep for compatibility)
+            with open(drug_codes_json_file, "w", encoding="utf-8") as f:
                 json.dump(drug_code_results, f, indent=2, ensure_ascii=False)
 
-            print(f"\n✓ Drug codes comparison saved to: {drug_codes_output_file}")
+            # Save CSV with 3 columns (semicolon separator for better readability)
+            import csv
+            with open(drug_codes_csv_file, "w", encoding="utf-8", newline='') as f:
+                writer = csv.writer(f)
+                # Write header
+                writer.writerow(['subject_id', 'true_drug_codes', 'pred_drug_codes'])
+
+                # Write data rows
+                for i in range(len(drug_code_results['subject_ids'])):
+                    subject_id = drug_code_results['subject_ids'][i]
+                    true_codes = '; '.join(drug_code_results['true_drug_codes'][i])  # Join with semicolon + space
+                    pred_codes = '; '.join(drug_code_results['pred_drug_codes'][i])  # Join with semicolon + space
+                    writer.writerow([subject_id, true_codes, pred_codes])
+
+            print(f"\n✓ Drug codes saved to:")
+            print(f"   - JSON: {drug_codes_json_file}")
+            print(f"   - CSV:  {drug_codes_csv_file}")
             print(f"   - Total samples: {len(drug_code_results['subject_ids'])}")
             print(f"   - Average true drugs per patient: {sum(len(codes) for codes in drug_code_results['true_drug_codes']) / len(drug_code_results['true_drug_codes']):.2f}")
             print(f"   - Average predicted drugs per patient: {sum(len(codes) for codes in drug_code_results['pred_drug_codes']) / len(drug_code_results['pred_drug_codes']):.2f}")
