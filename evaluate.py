@@ -58,38 +58,38 @@ def evaluate_jsonlines(data_path, ehr_tokenizer, threshold=0.5, ddi_path='./data
     print('\nJaccard: {:.4},  PRAUC: {:.4}, AVG_PRC: {:.4}, AVG_RECALL: {:.4}, AVG_F1: {:.4}, DDI_rate: {:.4}\n'.format(
           ja, prauc, avg_p, avg_r, avg_f1, ddi
     ))
-    print("10-rounds PRAUC: %.5f + %.5f" % (mean[0], std[0]))
-    print("10-rounds Jaccard: %.5f + %.5f" % (mean[1], std[1]))
-    print("10-rounds F1-score: %.5f + %.5f" % (mean[2], std[2]))
+    # print("10-rounds PRAUC: %.5f + %.5f" % (mean[0], std[0]))
+    # print("10-rounds Jaccard: %.5f + %.5f" % (mean[1], std[1]))
+    # print("10-rounds F1-score: %.5f + %.5f" % (mean[2], std[2]))
 
-    seq_len = np.array(seq_len)
-    pred_data = np.array(pred_data)
-    pred_data_prob = np.array(pred_data_prob)
-    single_index = (seq_len == 0)
-    multi_index = (seq_len >= 1)
-    acc_container = {}
-    s_ja, s_prauc, s_avg_p, s_avg_r, s_avg_f1, s_mean, s_std = multi_label_metric(true_data[single_index],
-                                                                   pred_data[single_index],
-                                                                   pred_data_prob[single_index])
-    m_ja, m_prauc, m_avg_p, m_avg_r, m_avg_f1, m_mean, m_std = multi_label_metric(true_data[multi_index],
-                                                                   pred_data[multi_index],
-                                                                   pred_data_prob[multi_index])
-    acc_container['single-jaccard'] = s_ja
-    acc_container['single-f1'] = s_avg_f1
-    acc_container['single-prauc'] = s_prauc
-    acc_container['multiple-jaccard'] = m_ja
-    acc_container['multiple-f1'] = m_avg_f1
-    acc_container['multiple-prauc'] = m_prauc
+    # seq_len = np.array(seq_len)
+    # pred_data = np.array(pred_data)
+    # pred_data_prob = np.array(pred_data_prob)
+    # single_index = (seq_len == 0)
+    # multi_index = (seq_len >= 1)
+    # acc_container = {}
+    # s_ja, s_prauc, s_avg_p, s_avg_r, s_avg_f1, s_mean, s_std = multi_label_metric(true_data[single_index],
+    #                                                                pred_data[single_index],
+    #                                                                pred_data_prob[single_index])
+    # m_ja, m_prauc, m_avg_p, m_avg_r, m_avg_f1, m_mean, m_std = multi_label_metric(true_data[multi_index],
+    #                                                                pred_data[multi_index],
+    #                                                                pred_data_prob[multi_index])
+    # acc_container['single-jaccard'] = s_ja
+    # acc_container['single-f1'] = s_avg_f1
+    # acc_container['single-prauc'] = s_prauc
+    # acc_container['multiple-jaccard'] = m_ja
+    # acc_container['multiple-f1'] = m_avg_f1
+    # acc_container['multiple-prauc'] = m_prauc
 
-    for k, v in acc_container.items():
-        print('%-10s : %-10.4f' % (k, v))
+    # for k, v in acc_container.items():
+    #     print('%-10s : %-10.4f' % (k, v))
 
-    print("Single-visit 10-rounds PRAUC: %.5f + %.5f" % (s_mean[0], s_std[0]))
-    print("Single-vist 10-rounds Jaccard: %.5f + %.5f" % (s_mean[1], s_std[1]))
-    print("Single-visit 10-rounds F1-score: %.5f + %.5f" % (s_mean[2], s_std[2]))
-    print("Multi-visit 10-rounds PRAUC: %.5f + %.5f" % (m_mean[0], m_std[0]))
-    print("Multi-vist 10-rounds Jaccard: %.5f + %.5f" % (m_mean[1], m_std[1]))
-    print("Multi-visit 10-rounds F1-score: %.5f + %.5f" % (m_mean[2], m_std[2]))
+    # print("Single-visit 10-rounds PRAUC: %.5f + %.5f" % (s_mean[0], s_std[0]))
+    # print("Single-vist 10-rounds Jaccard: %.5f + %.5f" % (s_mean[1], s_std[1]))
+    # print("Single-visit 10-rounds F1-score: %.5f + %.5f" % (s_mean[2], s_std[2]))
+    # print("Multi-visit 10-rounds PRAUC: %.5f + %.5f" % (m_mean[0], m_std[0]))
+    # print("Multi-vist 10-rounds Jaccard: %.5f + %.5f" % (m_mean[1], m_std[1]))
+    # print("Multi-visit 10-rounds F1-score: %.5f + %.5f" % (m_mean[2], m_std[2]))
 
     # Create dictionary containing drug codes
     drug_code_results = {
