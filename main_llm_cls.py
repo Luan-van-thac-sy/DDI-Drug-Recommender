@@ -240,8 +240,8 @@ def train():
                 # Write data rows
                 for i in range(len(drug_code_results['subject_ids'])):
                     subject_id = drug_code_results['subject_ids'][i]
-                    true_codes = '; '.join(drug_code_results['true_drug_codes'][i])  # Join with semicolon + space
-                    pred_codes = '; '.join(drug_code_results['pred_drug_codes'][i])  # Join with semicolon + space
+                    true_codes = '; '.join(sorted(drug_code_results['true_drug_codes'][i]))  # Join with semicolon + space
+                    pred_codes = '; '.join(sorted(drug_code_results['pred_drug_codes'][i]))  # Join with semicolon + space
                     writer.writerow([subject_id, true_codes, pred_codes])
 
             print(f"\n✓ Drug codes saved to:")
