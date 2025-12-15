@@ -14,6 +14,11 @@ def evaluate_jsonlines(data_path, ehr_tokenizer, threshold=0.5, ddi_path='./data
     seq_len = []
     pred_label = []
 
+    # Collect drug codes
+    all_true_drug_codes = []      # Ground truth drug codes
+    all_pred_drug_codes = []      # Predicted drug codes
+    all_subject_ids = []          # Subject IDs for tracking
+
     for row, meta_data in enumerate(read_jsonlines(data_path)):
 
         # noramlize the predicted scores by sigmoid, and get the prob
@@ -30,11 +35,19 @@ def evaluate_jsonlines(data_path, ehr_tokenizer, threshold=0.5, ddi_path='./data
         true_index = ehr_tokenizer.convert_med_tokens_to_ids(meta_data["drug_code"])
         true_data[row][true_index] = 1
 
+        # Save true drug codes
+        all_true_drug_codes.append(meta_data["drug_code"])
+        all_subject_ids.append(meta_data.get("subject_id", row))
+
         seq_len.append(int(meta_data["input"].split("The patient has ")[1].split(" times ICU visits.")[0]))
 
         # prepare the labels for DDI calculation
         meta_label = np.where(meta_pred_data == 1)[0]
         pred_label.append([sorted(meta_label)])
+
+        # Convert predicted indices back to drug codes
+        pred_drug_codes = [ehr_tokenizer.med_voc.idx2word[idx] for idx in meta_label]
+        all_pred_drug_codes.append(pred_drug_codes)
 
     ja, prauc, avg_p, avg_r, avg_f1, mean, std = multi_label_metric(true_data,
                                                          np.array(pred_data),
@@ -78,7 +91,14 @@ def evaluate_jsonlines(data_path, ehr_tokenizer, threshold=0.5, ddi_path='./data
     print("Multi-vist 10-rounds Jaccard: %.5f + %.5f" % (m_mean[1], m_std[1]))
     print("Multi-visit 10-rounds F1-score: %.5f + %.5f" % (m_mean[2], m_std[2]))
 
-    return ja, prauc, avg_p, avg_r, avg_f1
+    # Create dictionary containing drug codes
+    drug_code_results = {
+        'true_drug_codes': all_true_drug_codes,
+        'pred_drug_codes': all_pred_drug_codes,
+        'subject_ids': all_subject_ids
+    }
+
+    return ja, prauc, avg_p, avg_r, avg_f1, drug_code_results
 
 
 def np_sigmoid(x):

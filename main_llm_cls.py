@@ -220,7 +220,28 @@ def train():
                     res = json.dumps(samp, ensure_ascii=False)
                     writer.write(f"{res}\n")
 
-            results = evaluate_jsonlines(output_prediction_file, ehr_tokenizer)   # output the MedRec metrics
+            ja, prauc, avg_p, avg_r, avg_f1, drug_code_results = evaluate_jsonlines(output_prediction_file, ehr_tokenizer)   # output the MedRec metrics
+
+            # Save drug codes to file
+            drug_codes_output_file = os.path.join(training_args.output_dir, "drug_codes_comparison.json")
+
+            with open(drug_codes_output_file, "w", encoding="utf-8") as f:
+                json.dump(drug_code_results, f, indent=2, ensure_ascii=False)
+
+            print(f"\n✓ Drug codes comparison saved to: {drug_codes_output_file}")
+            print(f"   - Total samples: {len(drug_code_results['subject_ids'])}")
+            print(f"   - Average true drugs per patient: {sum(len(codes) for codes in drug_code_results['true_drug_codes']) / len(drug_code_results['true_drug_codes']):.2f}")
+            print(f"   - Average predicted drugs per patient: {sum(len(codes) for codes in drug_code_results['pred_drug_codes']) / len(drug_code_results['pred_drug_codes']):.2f}")
+
+            # Store in results dict
+            results = {
+                'jaccard': ja,
+                'prauc': prauc,
+                'precision': avg_p,
+                'recall': avg_r,
+                'f1': avg_f1,
+                'drug_codes': drug_code_results
+            }
 
     return results
 
