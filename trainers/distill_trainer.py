@@ -23,6 +23,7 @@ class DistillTrainer(Trainer):
         data_dir = args.data_dir
         self.ehr_adj = pickle.load(open(os.path.join(data_dir, 'full/ehr_adj_final.pkl'), 'rb'))
         self.ddi_adj = pickle.load(open(os.path.join(data_dir, 'full/ddi_A_final.pkl'), 'rb'))
+        self.ddi_beta = 0.0  # adaptive DDI loss weight (Phase 3)
         super().__init__(args, logger, device, generator)
 
         if self.args.finetune:
@@ -36,6 +37,23 @@ class DistillTrainer(Trainer):
         config.hidden_size = self.args.hidden_size
         if self.args.model_name == "leader":
             self.model = LEADER(config, self.args, self.tokenizer, self.device, self.profile_tokenizer)
+
+        # Register DDI adjacency matrix as buffer for DDI loss computation
+        if getattr(self.args, 'ddi', False) and self.ddi_adj is not None:
+            import torch
+            ddi_adj_tensor = torch.FloatTensor(self.ddi_adj)
+            self.model.register_buffer('ddi_adj', ddi_adj_tensor)
+
+        # Register MDC matrix as buffer for MDC loss computation (Phase 5)
+        if getattr(self.args, 'mdc', False):
+            import torch
+            from utils.mdc_context import build_mdc_matrix
+            mdc_matrix, matched_rules, matched_pairs = build_mdc_matrix(
+                self.tokenizer.diag_voc, self.tokenizer.med_voc
+            )
+            self.model.register_buffer('mdc_matrix', torch.FloatTensor(mdc_matrix))
+            self.logger.info(f"MDC matrix: {mdc_matrix.shape}, "
+                           f"rules matched: {matched_rules}, pairs: {matched_pairs}")
 
         if not self.args.offline:
             self.teacher = LlamaForMedRec.from_pretrained(
@@ -136,8 +154,32 @@ class DistillTrainer(Trainer):
                                                   self.args.therhold,
                                                   self.ddi_adj)
         acc_container.update(acc_container_group)   # merge two dicts
+
+        # Phase 3: Adaptive DDI safety weighting after each eval
+        if getattr(self.args, 'ddi', False) and not test:
+            self._update_ddi_beta(acc_container)
+
         return acc_container
 
+
+    def _update_ddi_beta(self, acc_container):
+        """Adaptive safety weighting (KELLM-inspired).
+        When current DDI rate exceeds target, increase DDI loss weight.
+        When DDI rate is below target, decrease weight to focus on accuracy.
+        """
+        current_ddi = acc_container.get("ddi", 0)
+        target_ddi = getattr(self.args, 'target_ddi', 0.06)
+        ddi_temp = getattr(self.args, 'ddi_temp', 2.0)
+
+        if current_ddi > target_ddi:
+            self.ddi_beta = min(1.0, self.ddi_beta + (1.0 / ddi_temp))
+        else:
+            self.ddi_beta = max(0.0, self.ddi_beta - (1.0 / ddi_temp))
+
+        # Update model's dynamic DDI weight
+        self.model.ddi_weight = self.ddi_beta
+        self.logger.info(f"  DDI adaptive beta: {self.ddi_beta:.4f} "
+                         f"(current DDI: {current_ddi:.4f}, target: {target_ddi:.4f})")
 
 
     def _freeze(self):

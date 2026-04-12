@@ -83,6 +83,9 @@ class LEADER(nn.Module):
         self.num_trm_layers = args.num_trm_layers
         self.d_loss = args.d_loss
         self.ml_weight = args.ml_weight
+        self.ddi_flag = getattr(args, 'ddi', False)
+        self.mdc_flag = getattr(args, 'mdc', False)
+        self.mdc_weight = getattr(args, 'mdc_weight', 0.03)
         self.align = args.align
         self.align_weight = args.align_weight
         if not args.prompt_num:
@@ -209,6 +212,18 @@ class LEADER(nn.Module):
                 align_loss = self.align_profile(multi_label, med_pp.view(med_pp.shape[0], -1))
                 loss += self.align_weight * align_loss.mean(dim=-1)
 
+            if self.ddi_flag and hasattr(self, 'ddi_adj'):
+                ddi_loss = self.compute_ddi_loss(output)
+                ddi_weight = getattr(self, 'ddi_weight', self.ml_weight)
+                if self.mdc_flag and hasattr(self, 'mdc_matrix'):
+                    # KELLM combined: beta * (alpha * L_MDC + (1-alpha) * L_DDI) + (1-beta) * L_BCE
+                    mdc_loss = self.compute_mdc_loss(output, diag_seq, seq_mask)
+                    alpha_mdc = self.mdc_weight / (self.mdc_weight + self.ml_weight + 1e-8)
+                    safety_loss = alpha_mdc * mdc_loss + (1 - alpha_mdc) * ddi_loss
+                    loss = (1 - ddi_weight) * loss + ddi_weight * safety_loss
+                else:
+                    loss = loss + ddi_weight * ddi_loss
+
             if self.distill:
                 if self.d_loss == "mse":  # feature-based KD
                     mediator = self.medrec[1](self.medrec[0](torch.cat([diag_emb, proc_emb, med_emb], dim=1)))
@@ -223,6 +238,52 @@ class LEADER(nn.Module):
         else:
             return output
         
+    def compute_ddi_loss(self, output):
+        """Penalize co-prescription of drugs with known adverse interactions.
+        L_DDI = sum over pairs (i,j) of ddi_adj[i,j] * p_i * p_j
+        """
+        probs = torch.sigmoid(output)  # (bs, med_voc_size)
+        # Efficient: probs^T @ ddi_adj @ probs per sample
+        ddi_loss = torch.bmm(
+            torch.bmm(
+                probs.unsqueeze(1),  # (bs, 1, V)
+                self.ddi_adj.unsqueeze(0).expand(probs.size(0), -1, -1)  # (bs, V, V)
+            ),  # (bs, 1, V)
+            probs.unsqueeze(2)  # (bs, V, 1)
+        ).squeeze()  # (bs,)
+        return ddi_loss
+
+    def compute_mdc_loss(self, output, diag_seq, seq_mask):
+        """Penalize prescribing drugs contraindicated for patient's diagnoses.
+        For each patient, get active diagnoses from last valid visit,
+        look up contraindicated drugs in mdc_matrix, penalize their predicted probabilities.
+        """
+        probs = torch.sigmoid(output)  # (bs, med_voc_size)
+        bs = probs.size(0)
+
+        # Get last valid visit index for each patient
+        visit_counts = seq_mask.sum(dim=1).long()  # (bs,)
+        last_visit_idx = (visit_counts - 1).clamp(min=0)  # (bs,)
+
+        # Extract diagnosis indices from last visit: diag_seq is (bs, max_seq_len, max_set_len)
+        last_diags = diag_seq[torch.arange(bs), last_visit_idx]  # (bs, max_set_len)
+
+        # Build per-patient contraindication mask from mdc_matrix
+        # mdc_matrix: (num_diag, num_med), last_diags: (bs, max_set_len)
+        # For each patient, sum mdc_matrix rows for active diagnoses
+        mdc_penalty = torch.zeros(bs, device=probs.device)
+        for i in range(bs):
+            active = last_diags[i]
+            active = active[active > 0]  # filter padding
+            if len(active) == 0:
+                continue
+            # Gather MDC rows for active diagnoses, sum to get contraindication strength per drug
+            contra = self.mdc_matrix[active].sum(dim=0)  # (num_med,)
+            # Penalize: sum of (contraindication_strength * predicted_probability)
+            mdc_penalty[i] = (contra * probs[i]).sum()
+
+        return mdc_penalty
+
     def compute_kd(self, y_s, y_t):
         # comptue the distillation loss based on the output of student and teacher
         

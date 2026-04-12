@@ -3,9 +3,9 @@ import numpy as np
 
 
 class llama_train(object):
-    
+
     def __init__(self, data_args, model_args, tokenizer) -> None:
-    
+
         self.data_args = data_args
         self.model_args = model_args
         self.prompt_column = "input"
@@ -49,7 +49,7 @@ class llama_train(object):
                 context_length = len(a_ids)
                 input_ids = a_ids + b_ids + [self.tokenizer.eos_token_id]
                 labels = [self.tokenizer.pad_token_id] * context_length + b_ids + [self.tokenizer.eos_token_id]
-                
+
                 pad_len = max_seq_length - len(input_ids)
 
                 if self.data_args.ignore_pad_token_for_loss:
@@ -63,9 +63,9 @@ class llama_train(object):
 
 
 class llama_eval(object):
-    
+
     def __init__(self, data_args, model_args, tokenizer) -> None:
-        
+
         self.data_args = data_args
         self.model_args = model_args
         self.prompt_column = "input"
@@ -75,7 +75,7 @@ class llama_eval(object):
 
 
     def __call__(self, examples):
-    
+
         max_target_length = self.data_args.max_target_length
         inputs, targets = [], []
 
@@ -111,13 +111,13 @@ class llama_eval(object):
         model_inputs["labels"] = labels["input_ids"]
 
         return model_inputs
-        
+
 
 
 class llama_train_cls(object):
-    
+
     def __init__(self, data_args, model_args, tokenizer, ehr_tokenizer) -> None:
-    
+
         self.data_args = data_args
         self.model_args = model_args
         self.prompt_column = "input"
@@ -169,9 +169,9 @@ class llama_train_cls(object):
 
 
 class llama_eval_cls(object):
-    
+
     def __init__(self, data_args, model_args, tokenizer, ehr_tokenizer) -> None:
-        
+
         self.data_args = data_args
         self.model_args = model_args
         self.prompt_column = "input"
@@ -182,7 +182,7 @@ class llama_eval_cls(object):
 
 
     def __call__(self, examples):
-    
+
         max_target_length = self.data_args.max_target_length
         inputs, targets = [], []
 
@@ -215,12 +215,12 @@ class llama_eval_cls(object):
         #model_inputs["labels"] = None
 
         return model_inputs
-    
+
 
 class llama_dpo_cls(object):
-    
+
     def __init__(self, data_args, model_args, tokenizer, ehr_tokenizer) -> None:
-    
+
         self.data_args = data_args
         self.model_args = model_args
         self.prompt_column = "input"

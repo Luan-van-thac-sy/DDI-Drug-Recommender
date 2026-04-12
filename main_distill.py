@@ -221,6 +221,14 @@ parser.add_argument("--ml_weight",
                     default=0.05,
                     type=float,
                     help="the weight of multi-label loss")
+parser.add_argument("--mdc",
+                    default=False,
+                    action="store_true",
+                    help="whether adopt the MDC (multi-disease contraindication) loss")
+parser.add_argument("--mdc_weight",
+                    default=0.03,
+                    type=float,
+                    help="the weight of MDC loss")
 parser.add_argument("--align",
                     default=False,
                     action="store_true",
