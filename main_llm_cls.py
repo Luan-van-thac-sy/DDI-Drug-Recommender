@@ -220,7 +220,22 @@ def train():
                     res = json.dumps(samp, ensure_ascii=False)
                     writer.write(f"{res}\n")
 
-            ja, prauc, avg_p, avg_r, avg_f1, drug_code_results = evaluate_jsonlines(output_prediction_file, ehr_tokenizer)   # output the MedRec metrics
+            # Evaluate prediction JSONL (metrics + decoded drug codes)
+            eval_threshold = 0.3
+            eval_ddi_path = os.path.join("data", dataset_name, "handled", "full")
+            eval_results = evaluate_jsonlines(
+                output_prediction_file,
+                ehr_tokenizer,
+                threshold=eval_threshold,
+                ddi_path=eval_ddi_path,
+            )
+
+            ja = eval_results["jaccard"]
+            prauc = eval_results["prauc"]
+            avg_p = eval_results["precision"]
+            avg_r = eval_results["recall"]
+            avg_f1 = eval_results["f1"]
+            drug_code_results = eval_results.get("drug_code_results", {})
 
             # Save drug codes to files (both JSON and CSV)
             drug_codes_json_file = os.path.join(training_args.output_dir, "drug_codes_comparison.json")
@@ -258,6 +273,7 @@ def train():
                 'precision': avg_p,
                 'recall': avg_r,
                 'f1': avg_f1,
+                'ddi_rate': eval_results.get('ddi_rate', None),
                 'drug_codes': drug_code_results
             }
 
@@ -267,5 +283,4 @@ def train():
 if __name__ == "__main__":
 
     train()
-
 
