@@ -3,6 +3,7 @@ Phase 1: Data Preparation for DDI-Aware LEADER
 Converts data4LLM_with_note.csv → LEADER JSONL format
 Copies pre-built artifacts (voc, DDI, EHR) to expected paths
 """
+
 import os
 import csv
 import ast
@@ -150,7 +151,9 @@ def build_patient_records(rows, voc):
         current_proc_names = parse_list(current["procedure"])
         current_drug_names = parse_list(current["drug_name"])
         current_drug_ids = parse_list(current["drug_id"])
-        current_drug_codes = [str(med_idx2word[i]) for i in current_drug_ids if i in med_idx2word]
+        current_drug_codes = [
+            str(med_idx2word[i]) for i in current_drug_ids if i in med_idx2word
+        ]
 
         # Build main prompt
         hist_str = "".join(history_parts)
@@ -167,7 +170,9 @@ def build_patient_records(rows, voc):
             prompt += f"\nClinical Notes: {truncated_note}"
 
         # Append DDI knowledge (Phase 4) based on known interacting pairs in current meds
-        warnings = build_ddi_warnings(current_drug_names, current_drug_ids, voc.get("ddi_adj"))
+        warnings = build_ddi_warnings(
+            current_drug_names, current_drug_ids, voc.get("ddi_adj")
+        )
         prompt += "\nDrug Safety Information:\n"
         if warnings:
             prompt += "\n".join(f"- {w}" for w in warnings)
@@ -176,15 +181,25 @@ def build_patient_records(rows, voc):
 
         # Append MDC warnings (Phase 5) for disease-drug contraindications
         mdc_matrix = voc.get("mdc_matrix")
+        mdc_warns = []
         if mdc_matrix is not None:
             mdc_warns = build_mdc_warnings(
-                current_diag_names, current_diag_ids,
-                current_drug_names, current_drug_ids,
-                mdc_matrix, max_warnings=10
+                current_diag_names,
+                current_diag_ids,
+                current_drug_names,
+                current_drug_ids,
+                mdc_matrix,
+                max_warnings=10,
             )
             if mdc_warns:
                 prompt += "\nContraindication Warnings:\n"
                 prompt += "\n".join(f"- {w}" for w in mdc_warns)
+
+        # Build drug safety info field
+        drug_safety_info = {
+            "ddi_warnings": warnings if warnings else [],
+            "mdc_warnings": mdc_warns if mdc_warns else [],
+        }
 
         # Build target string (drug names)
         target = concat_str(current_drug_names)
@@ -202,6 +217,7 @@ def build_patient_records(rows, voc):
             "drug_code": current_drug_codes,
             "records": records,
             "profile": profile,
+            "drug_safety_info": drug_safety_info,
         }
         llm_data.append(record)
 
@@ -218,8 +234,8 @@ def split_data(data, train_ratio, val_ratio, seed):
     n_val = int(len(data) * val_ratio)
 
     train = [data[i] for i in indices[:n_train]]
-    val = [data[i] for i in indices[n_train:n_train + n_val]]
-    test = [data[i] for i in indices[n_train + n_val:]]
+    val = [data[i] for i in indices[n_train : n_train + n_val]]
+    test = [data[i] for i in indices[n_train + n_val :]]
 
     return train, val, test
 
@@ -257,7 +273,9 @@ def main():
         voc["diag_voc"], voc["med_voc"]
     )
     voc["mdc_matrix"] = mdc_matrix
-    print(f"    MDC matrix shape: {mdc_matrix.shape}, rules matched: {matched_rules}, pairs: {matched_pairs}")
+    print(
+        f"    MDC matrix shape: {mdc_matrix.shape}, rules matched: {matched_rules}, pairs: {matched_pairs}"
+    )
 
     # 2. Load CSV
     print(f"\n[2] Loading CSV from {INPUT_CSV}")
@@ -272,7 +290,9 @@ def main():
     print(f"    Records built: {len(llm_data)}")
 
     # 4. Split data
-    print(f"\n[4] Splitting data ({TRAIN_RATIO}/{VAL_RATIO}/{1-TRAIN_RATIO-VAL_RATIO})...")
+    print(
+        f"\n[4] Splitting data ({TRAIN_RATIO}/{VAL_RATIO}/{1 - TRAIN_RATIO - VAL_RATIO})..."
+    )
     train, val, test = split_data(llm_data, TRAIN_RATIO, VAL_RATIO, SEED)
     print(f"    Train: {len(train)}, Val: {len(val)}, Test: {len(test)}")
 
