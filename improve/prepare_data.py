@@ -61,8 +61,13 @@ def concat_str(str_list):
 
 
 def parse_list(s):
-    """Parse a string like '[1, 2, 3]' or \"['a', 'b']\" into a Python list."""
+    """Parse a string like '[1, 2, 3]' or "['a', 'b']" into a Python list."""
     return ast.literal_eval(s)
+
+
+def sanitize_warning(warning_str):
+    """Sanitize warning string to avoid JSON parsing issues."""
+    return warning_str.replace('"', "'").replace("\\", " ")
 
 
 def build_profile_dict(rows):
@@ -197,8 +202,10 @@ def build_patient_records(rows, voc):
 
         # Build drug safety info field
         drug_safety_info = {
-            "ddi_warnings": warnings if warnings else [],
-            "mdc_warnings": mdc_warns if mdc_warns else [],
+            "ddi_warnings": [sanitize_warning(w) for w in warnings] if warnings else [],
+            "mdc_warnings": [sanitize_warning(w) for w in mdc_warns]
+            if mdc_warns
+            else [],
         }
 
         # Build target string (drug names)
@@ -244,7 +251,8 @@ def save_jsonl(path, data):
     """Save list of dicts as JSONL."""
     with open(path, "w", encoding="utf-8") as f:
         for record in data:
-            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+            json_str = json.dumps(record, ensure_ascii=False)
+            f.write(json_str + "\n")
 
 
 def main():
