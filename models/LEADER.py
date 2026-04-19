@@ -71,7 +71,7 @@ class LEADER(nn.Module):
         device,
         profile_tokenizer=None
     ) -> None:
-        
+
         super().__init__()
         self.vocab_size = len(tokenizer.vocab.word2idx)
         self.med_voc_size = len(tokenizer.med_voc.word2idx)
@@ -129,19 +129,19 @@ class LEADER(nn.Module):
                 self.distill_loss_fct_mse = nn.MSELoss(reduction="none")
             else:
                 return ValueError("Error for distillation loss type.")
-        
+
         if self.align:
-            self.align_loss_fct = Contrastive_Loss(project=True, 
+            self.align_loss_fct = Contrastive_Loss(project=True,
                                                    in_dim_1=self.emb_dim,
                                                    in_dim_2=self.emb_dim*self.prompt_num,
                                                    out_dim=self.emb_dim)
 
 
-    def forward(self, 
-                diag_seq, 
-                proc_seq, 
-                med_seq, 
-                seq_mask, 
+    def forward(self,
+                diag_seq,
+                proc_seq,
+                med_seq,
+                seq_mask,
                 labels,
                 profile=None,
                 multi_label=None,
@@ -189,7 +189,7 @@ class LEADER(nn.Module):
         # concat the profile prompt
         med_emb_seq = torch.cat([med_pp, med_emb_seq], dim=1)
         med_emb_seq = med_emb_seq[:, :-self.prompt_num, :]    # truncate the last record
-        
+
         # use the trm get the historical representation
         for i in range(self.num_trm_layers):
             diag_emb_seq = self.visit_trm[i](diag_emb_seq, seq_mask.unsqueeze(1).repeat(1, seq_mask.shape[1], 1).unsqueeze(1))
@@ -216,7 +216,6 @@ class LEADER(nn.Module):
                 ddi_loss = self.compute_ddi_loss(output)
                 ddi_weight = getattr(self, 'ddi_weight', self.ml_weight)
                 if self.mdc_flag and hasattr(self, 'mdc_matrix'):
-                    # KELLM combined: beta * (alpha * L_MDC + (1-alpha) * L_DDI) + (1-beta) * L_BCE
                     mdc_loss = self.compute_mdc_loss(output, diag_seq, seq_mask)
                     alpha_mdc = self.mdc_weight / (self.mdc_weight + self.ml_weight + 1e-8)
                     safety_loss = alpha_mdc * mdc_loss + (1 - alpha_mdc) * ddi_loss
@@ -234,10 +233,10 @@ class LEADER(nn.Module):
                 loss = loss + self.alpha * distill_loss
 
             return loss, 0, output
-        
+
         else:
             return output
-        
+
     def compute_ddi_loss(self, output):
         """Penalize co-prescription of drugs with known adverse interactions.
         L_DDI = sum over pairs (i,j) of ddi_adj[i,j] * p_i * p_j
@@ -286,7 +285,7 @@ class LEADER(nn.Module):
 
     def compute_kd(self, y_s, y_t):
         # comptue the distillation loss based on the output of student and teacher
-        
+
         # soften the output from student and teacher
         p_s = torch.sigmoid(y_s / self.T)
         p_t = torch.sigmoid(y_t / self.T)
@@ -294,18 +293,18 @@ class LEADER(nn.Module):
         # calculate the distill loss
         loss = self.distill_loss_fct_kl(p_s, p_t) * (self.T**2) / y_s.shape[0]
         return loss
-    
+
 
     def get_loss(self, diag_seq, proc_seq, med_seq, seq_mask, labels, **kwargs):
 
         loss, _, output = self(diag_seq, proc_seq, med_seq, seq_mask, labels, **kwargs)
 
         return loss.mean()
-    
+
 
     def align_profile(self, med_seq, encoder_output):
         # align the output of profile encoder with medication representation
-        
+
         med_seq = med_seq.unsqueeze(1)
         med_seq[med_seq<0] = 0
 
@@ -316,7 +315,7 @@ class LEADER(nn.Module):
         for i in range(self.num_trm_layers):
             med_emb_seq = self.med_trm[i](med_emb_seq, med_mask)
         med_emb_seq = torch.sum(med_emb_seq * (med_seq>0).unsqueeze(-1), dim=2) / med_set_length
-        loss = self.align_loss_fct(med_emb_seq.squeeze(), encoder_output)
-        
+        loss = self.align_loss_fct(med_emb_seq.squeeze(1), encoder_output)
+
         return loss
 
