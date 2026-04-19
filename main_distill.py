@@ -50,6 +50,10 @@ parser.add_argument("--check_path",
                     default='',
                     type=str,
                     help="the save path of checkpoints for different running")
+parser.add_argument("--data_dir",
+                    default=None,
+                    type=str,
+                    help="The input data directory.")
 
 # Other parameters
 parser.add_argument("--freeze",
@@ -244,7 +248,8 @@ parser.add_argument("--offline",
 
 
 args = parser.parse_args()
-args.data_dir = './data/' + str(args.dataset) + '/handled/'
+if args.data_dir is None:
+    args.data_dir = './data/' + str(args.dataset) + '/handled/'
 args.output_dir = args.output_dir + str(args.dataset) + '/'
 args.output_dir = os.path.join(args.output_dir, args.model_name)
 args.output_dir = os.path.join(args.output_dir, args.check_path)
