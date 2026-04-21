@@ -239,7 +239,7 @@ class LEADER(nn.Module):
 
     def compute_ddi_loss(self, output):
         """Penalize co-prescription of drugs with known adverse interactions.
-        L_DDI = sum over pairs (i,j) of ddi_adj[i,j] * p_i * p_j
+        L_DDI = sum over pairs (i,j) of ddi_adj[i,j] * p_i * p_j, normalized by num DDI pairs.
         """
         probs = torch.sigmoid(output)  # (bs, med_voc_size)
         # Efficient: probs^T @ ddi_adj @ probs per sample
@@ -249,7 +249,10 @@ class LEADER(nn.Module):
                 self.ddi_adj.unsqueeze(0).expand(probs.size(0), -1, -1)  # (bs, V, V)
             ),  # (bs, 1, V)
             probs.unsqueeze(2)  # (bs, V, 1)
-        ).squeeze()  # (bs,)
+        ).squeeze(-1).squeeze(-1)  # (bs,) — safe squeeze, works for bs=1 too
+        # Normalize by number of DDI pairs to keep loss magnitude stable
+        num_ddi_pairs = self.ddi_adj.sum().clamp(min=1.0)
+        ddi_loss = ddi_loss / num_ddi_pairs
         return ddi_loss
 
     def compute_mdc_loss(self, output, diag_seq, seq_mask):
