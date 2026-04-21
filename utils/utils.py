@@ -171,6 +171,11 @@ def metric_report(logger, y_pred, y_true, therhold=0.5, ddi_graph=None):
 
 
 def metric_report_group(logger, y_pred, y_true, seq_len, therhold=0.5, ddi_graph=None):
+    # Replace NaN/Inf with 0 to prevent metric crashes
+    if np.any(np.isnan(y_pred)) or np.any(np.isinf(y_pred)):
+        logger.warning("WARNING: y_pred contains NaN/Inf in group metrics — replacing with 0.")
+        y_pred = np.nan_to_num(y_pred, nan=0.0, posinf=1.0, neginf=0.0)
+
     y_prob = y_pred.copy()
     y_pred[y_pred > therhold] = 1
     y_pred[y_pred <= therhold] = 0

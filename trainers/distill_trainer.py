@@ -83,12 +83,22 @@ class DistillTrainer(Trainer):
 
             if not self.args.offline:
                 llm_inputs = {"input_ids": inputs["input_ids"], "labels": None}
-                inputs["llm_output"] = self.teacher(**llm_inputs)
+                llm_out = self.teacher(**llm_inputs)
+                # Guard: replace NaN in teacher hidden states (fp16 overflow)
+                if torch.isnan(llm_out.hidden_states).any():
+                    llm_out.hidden_states = torch.nan_to_num(llm_out.hidden_states, nan=0.0)
+                inputs["llm_output"] = llm_out
             else:
                 inputs["llm_output"] = {"hidden_states": inputs["hidden_states"],
                                         "logits": inputs["logits"]}
 
             loss = self.model.get_loss(**inputs)
+
+            # Guard: skip batch if loss is NaN (prevents corrupting all weights)
+            if torch.isnan(loss).any():
+                self.optimizer.zero_grad()
+                continue
+
             loss.backward()
 
             # Clip gradients to prevent explosion (esp. from DDI loss)
