@@ -91,6 +91,9 @@ class DistillTrainer(Trainer):
             loss = self.model.get_loss(**inputs)
             loss.backward()
 
+            # Clip gradients to prevent explosion (esp. from DDI loss)
+            torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
+
             tr_loss += loss.item()
             nb_tr_examples += 1
             nb_tr_steps += 1

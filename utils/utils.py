@@ -76,13 +76,18 @@ def multi_label_metric(y_gt, y_pred, y_prob):
     def roc_auc(y_gt, y_prob):
         all_micro = []
         for b in range(len(y_gt)):
+            if np.any(np.isnan(y_prob[b])) or np.any(np.isinf(y_prob[b])):
+                continue  # skip samples with NaN/Inf predictions
             all_micro.append(roc_auc_score(
                 y_gt[b], y_prob[b], average='macro'))
-        return np.mean(all_micro)
+        return np.mean(all_micro) if all_micro else 0.0
 
     def precision_auc(y_gt, y_prob):
         all_micro = []
         for b in range(len(y_gt)):
+            if np.any(np.isnan(y_prob[b])) or np.any(np.isinf(y_prob[b])):
+                all_micro.append(0.0)
+                continue
             all_micro.append(average_precision_score(
                 y_gt[b], y_prob[b], average='macro'))
         return all_micro
