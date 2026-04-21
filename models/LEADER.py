@@ -221,7 +221,8 @@ class LEADER(nn.Module):
                     safety_loss = alpha_mdc * mdc_loss + (1 - alpha_mdc) * ddi_loss
                     loss = (1 - ddi_weight) * loss + ddi_weight * safety_loss
                 else:
-                    loss = loss + ddi_weight * ddi_loss
+                    # KELLM eq 14: L = (1-β)·BCE + β·DDI
+                    loss = (1 - ddi_weight) * loss + ddi_weight * ddi_loss
 
             if self.distill:
                 if self.d_loss == "mse":  # feature-based KD

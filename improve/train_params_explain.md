@@ -164,34 +164,49 @@ python main_distill.py --dataset mimic3 \
 | Param | Value | Ý nghĩa |
 |-------|-------|---------|
 | `--ddi` | flag | Bật **DDI penalty loss** — phạt model khi dự đoán cặp thuốc có tương tác xấu |
-| `--ml_weight 0.05` | 0.05 | Trọng số ban đầu DDI loss. `loss += 0.05 × ddi_loss` |
-| `--target_ddi 0.06` | 0.06 | DDI rate mục tiêu = 6%. Adaptive mechanism sẽ tăng/giảm DDI weight quanh mốc này |
-| `--ddi_temp 2.0` | 2.0 | **Tốc độ điều chỉnh** adaptive beta. Mỗi eval: nếu DDI > target → `beta += 1/2.0 = 0.5`, nếu DDI < target → `beta -= 0.5`. Temp càng lớn → điều chỉnh càng chậm |
+| `--ml_weight 0.05` | 0.05 | Trọng số DDI loss ban đầu (fallback trước khi adaptive β update lần đầu) |
+| `--target_ddi 0.06` | 0.06 | DDI rate mục tiêu γ_DDI = 6%. β = 1.0 khi DDI ≤ target (KELLM eq 13) |
+| `--ddi_temp 2.0` | 2.0 | K_p — proportional control factor. β = max{0, 1-(DDI-γ_DDI)/K_p}. Giá trị lớn → β giảm chậm hơn khi DDI vượt target |
 
-## Tổng Loss Function
+## Tổng Loss Function (KELLM eq 14)
 
 **Không có MDC (case hiện tại, `mdc_flag=False`):**
 
 ```
-L_total = L_BCE                               ← prediction loss (giữ nguyên, không bị scale)
-        + β × (p^T @ ddi_adj @ p)             ← DDI penalty (cộng thêm)
-        + 0.4 × MSE(student_h, teacher_h)     ← distillation
-        + 0.005 × contrastive(prof, med)       ← alignment
+L_total = (1 - β) × L_BCE + β × L_DDI        ← KELLM eq 14 (weighted interpolation)
+        + α × MSE(student_h, teacher_h)        ← distillation (α=0.4)
+        + 0.005 × contrastive(prof, med)        ← alignment
 ```
 
-- `β` bắt đầu = 0 (`ddi_beta`), adaptive tăng/giảm mỗi epoch dựa trên DDI rate so với target 6%
-- Trước khi `β` được update lần đầu, `ddi_weight = ml_weight = 0.05`
-- BCE **không bị giảm** khi β tăng — DDI chỉ là penalty phụ cộng thêm
-
-**Nếu có MDC (`mdc_flag=True`):**
+**Có MDC (`mdc_flag=True`):**
 
 ```
 L_total = (1 - β) × L_BCE + β × (α_mdc × L_MDC + (1 - α_mdc) × L_DDI)
-        + 0.4 × MSE(student_h, teacher_h)
+        + α × MSE(student_h, teacher_h)
         + 0.005 × contrastive(prof, med)
 ```
 
-- BCE **bị scale xuống** khi β tăng — DDI/MDC thay thế phần BCE
+- Tổng weight BCE + safety luôn = 1 (balanced)
+- BCE bị scale xuống khi β tăng — safety thay thế phần BCE
+
+## Adaptive β (KELLM eq 13)
+
+```
+β = 1,                                    nếu DDI ≤ γ_DDI (safe)
+β = max{0, 1 - (DDI - γ_DDI) / K_p},     nếu DDI > γ_DDI (risky)
+```
+
+- `γ_DDI` = `--target_ddi` = 0.06
+- `K_p` = `--ddi_temp` = 2.0
+
+| DDI rate | β | BCE weight | Safety weight | Ý nghĩa |
+|----------|---|-----------|--------------|---------|
+| ≤ 0.06 | 1.0 | 0% | 100% | Safe → giữ full safety |
+| 0.08 | 0.99 | 1% | 99% | Hơi risky → tí BCE |
+| 0.56 | 0.75 | 25% | 75% | Risky → thêm BCE |
+| ≥ 2.06 | 0.0 | 100% | 0% | Cực risky → accuracy only |
+
+**Khởi tạo:** β = 1.0 (full safety từ đầu). Update mỗi epoch sau eval.
 
 ## Flow Khi Train
 
@@ -202,7 +217,7 @@ Input data
       - Profile → prompt vectors
       - Diag/Proc/Med sequences → transformer encoding
       - Output → medication probabilities
-  → Loss = BCE + DDI penalty + distillation + alignment
+  → Loss = (1-β)·BCE + β·DDI + distillation + alignment
   → Gradient clipping (max_norm=1.0)
   → Optimizer step
   → Mỗi epoch: eval → adaptive DDI beta update
@@ -219,7 +234,7 @@ Stage 1: EHR data → LLaMA-7B + LoRA → fine-tune classification head
 Stage 2: EHR data → Teacher (Stage 1) → hidden states ─┐
          EHR data → Student (LEADER) ───────────────────┤
                                                          ↓
-         Loss = BCE + DDI + Distill(MSE) + Align(Contrastive)
+         Loss = (1-β)·BCE + β·DDI + Distill(MSE) + Align(Contrastive)
          Output: Compact student model cho deployment
 ```
 
@@ -227,11 +242,40 @@ Stage 1 tạo teacher mạnh (LLaMA-7B) nhưng nặng. Stage 2 chưng cất ki�
 
 ---
 
-## Bug Fix: NaN during Eval
+## Bug Fixes & Changes
 
-### Root cause
-DDI loss (`p^T @ ddi_adj @ p`) tạo gradient lớn → không có gradient clipping → weights bùng nổ → NaN output → `roc_auc_score` crash.
+### Fix 1: NaN during Eval — DDI loss explosion
 
-### Fix
-1. `trainers/distill_trainer.py` — Thêm `clip_grad_norm_(max_norm=1.0)` sau `loss.backward()`
-2. `utils/utils.py` — Thêm NaN guard trong `roc_auc` và `precision_auc`
+**Root cause:** DDI loss (`p^T @ ddi_adj @ p`) ≈ 500 với random init (chưa normalize), gấp 700× BCE → gradient explosion → NaN weights.
+
+**Fixes:**
+1. `models/LEADER.py` — Normalize DDI loss: `ddi_loss /= num_ddi_pairs`
+2. `trainers/distill_trainer.py` — Gradient clipping: `clip_grad_norm_(max_norm=1.0)`
+3. `trainers/distill_trainer.py` — Skip NaN batch: `if torch.isnan(loss): continue`
+4. `trainers/distill_trainer.py` — Guard teacher NaN: `nan_to_num(hidden_states)`
+5. `utils/utils.py` — NaN guard trong `metric_report` và `metric_report_group`
+
+### Fix 2: Loss formula & Adaptive β — align với KELLM paper
+
+**Vấn đề cũ:**
+- Loss: `BCE + β·DDI` (additive, BCE không bị giảm)
+- β: bắt đầu 0, step ±0.5 mỗi epoch (hướng ngược KELLM)
+
+**Sửa theo KELLM:**
+- Loss eq 14: `(1-β)·BCE + β·DDI` (weighted interpolation, tổng weight = 1)
+- β eq 13: `β=1` khi safe, `β = max{0, 1-(DDI-γ)/K_p}` khi risky (continuous)
+- β init: 1.0 (full safety từ đầu)
+
+### Checklist sync Colab
+
+```bash
+# Verify tất cả fixes có trên Colab:
+!grep -n "num_ddi_pairs" models/LEADER.py                  # DDI normalize
+!grep -n "1 - ddi_weight" models/LEADER.py                 # KELLM eq 14
+!grep -n "clip_grad_norm" trainers/distill_trainer.py       # Gradient clipping
+!grep -n "torch.isnan(loss)" trainers/distill_trainer.py    # NaN skip
+!grep -n "nan_to_num" trainers/distill_trainer.py           # Teacher NaN guard
+!grep -n "nan_to_num" utils/utils.py                        # Metric NaN guard
+!grep -n "ddi_beta = 1.0" trainers/distill_trainer.py       # β init = 1
+!grep -n "current_ddi <= target_ddi" trainers/distill_trainer.py  # KELLM eq 13
+```

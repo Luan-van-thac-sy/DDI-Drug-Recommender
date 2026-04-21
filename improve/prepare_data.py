@@ -174,15 +174,10 @@ def build_patient_records(rows, voc):
             truncated_note = note[:500]
             prompt += f"\nClinical Notes: {truncated_note}"
 
-        # Append DDI knowledge (Phase 4) based on known interacting pairs in current meds
+        # Compute DDI knowledge (Phase 4) - stored in drug_safety_info only, not in prompt
         warnings = build_ddi_warnings(
             current_drug_names, current_drug_ids, voc.get("ddi_adj")
         )
-        prompt += "\nDrug Safety Information:\n"
-        if warnings:
-            prompt += "\n".join(f"- {w}" for w in warnings)
-        else:
-            prompt += "- No known interactions among the current medications."
 
         # Append MDC warnings (Phase 5) for disease-drug contraindications
         mdc_matrix = voc.get("mdc_matrix")

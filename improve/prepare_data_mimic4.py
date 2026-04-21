@@ -21,9 +21,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_DIR = os.path.dirname(BASE_DIR)
 
 # All MIMIC-IV artifacts live here (from the data_process pipeline)
-MIMIC4_ARTIFACTS = os.path.join(
-    "data", "data_process", "output", "mimic-iv"
-)
+MIMIC4_ARTIFACTS = os.path.join("data", "data_process", "output", "mimic-iv")
 
 INPUT_CSV = os.path.join(MIMIC4_ARTIFACTS, "data4LLM.csv")
 DATA_DIR = os.path.join(PROJECT_DIR, "data", "mimic4", "handled")
@@ -176,15 +174,10 @@ def build_patient_records(rows, voc):
             truncated_note = note[:500]
             prompt += f"\nClinical Notes: {truncated_note}"
 
-        # Append DDI knowledge based on known interacting pairs in current meds
+        # Compute DDI knowledge - stored in drug_safety_info only, not in prompt
         warnings = build_ddi_warnings(
             current_drug_names, current_drug_ids, voc.get("ddi_adj")
         )
-        prompt += "\nDrug Safety Information:\n"
-        if warnings:
-            prompt += "\n".join(f"- {w}" for w in warnings)
-        else:
-            prompt += "- No known interactions among the current medications."
 
         # Append MDC warnings for disease-drug contraindications
         mdc_matrix = voc.get("mdc_matrix")
