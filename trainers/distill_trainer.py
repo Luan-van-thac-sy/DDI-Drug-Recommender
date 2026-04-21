@@ -10,7 +10,7 @@ from models.LEADER import LEADER
 from utils.config import BertConfig
 from utils.utils import t2n, metric_report, metric_report_group
 import time
-from llm.llama import LlamaForMedRec
+from llm.biomistral import MistralForMedRec
 from llm.lora_cls import PeftModelForCLS
 
 
@@ -56,7 +56,7 @@ class DistillTrainer(Trainer):
                            f"rules matched: {matched_rules}, pairs: {matched_pairs}")
 
         if not self.args.offline:
-            self.teacher = LlamaForMedRec.from_pretrained(
+            self.teacher = MistralForMedRec.from_pretrained(
                 self.args.llm_path,
                 med_voc=len(self.tokenizer.med_voc.word2idx),
             ).half().to(self.device)

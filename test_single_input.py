@@ -8,7 +8,7 @@ import os
 import json
 import torch
 from transformers import AutoTokenizer
-from llm.llama import LlamaForMedRec
+from llm.biomistral import MistralForMedRec
 from llm.lora_cls import PeftModelForCLS
 from generators.data import EHRTokenizer
 import time
@@ -17,7 +17,7 @@ def test_single_input():
     """Test model with single input sample"""
 
     # Configuration (from llm_cls_t4_gpu.bash)
-    model_name_or_path = "resources/llama-7b"
+    model_name_or_path = "resources/biomistral-7b"
     peft_path = "saved/lora-0105/checkpoint-3000"
     voc_dir = "data/mimic3/handled/voc_final.pkl"
     max_source_length = 512
@@ -54,7 +54,7 @@ def test_single_input():
 
         # Load model
         print("Loading base model...")
-        model = LlamaForMedRec.from_pretrained(
+        model = MistralForMedRec.from_pretrained(
             model_name_or_path,
             med_voc=len(ehr_tokenizer.med_voc.word2idx),
             device_map="auto",

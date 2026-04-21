@@ -22,7 +22,7 @@ from transformers import AutoModel, AutoTokenizer
 from transformers import TrainerCallback, TrainerState, TrainerControl, TrainingArguments
 from transformers.trainer_utils import PREFIX_CHECKPOINT_DIR
 
-from llm.llama import LlamaForMedRec
+from llm.biomistral import MistralForMedRec
 from llm.trainer_seq2seq import MedRecTrainer
 from llm.lora_cls import PeftModelForCLS
 from llm.arguments import DataTrainingArguments, ModelArguments
@@ -76,7 +76,7 @@ def train():
     ehr_tokenizer = EHRTokenizer(voc_dir)
 
     ## Load Model ##
-    model = LlamaForMedRec.from_pretrained(
+    model = MistralForMedRec.from_pretrained(
         model_args.model_name_or_path,
         med_voc=len(ehr_tokenizer.med_voc.word2idx),
         # TODO: add device map and torch dtype for colab

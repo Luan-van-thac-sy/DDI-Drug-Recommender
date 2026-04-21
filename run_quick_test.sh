@@ -5,9 +5,9 @@ echo "Testing model with single input sample"
 echo
 
 # Check if model files exist
-if [ ! -d "resources/llama-7b" ]; then
-    echo "❌ Error: resources/llama-7b not found!"
-    echo "Please download Llama-7B model to resources/llama-7b/"
+if [ ! -d "resources/biomistral-7b" ]; then
+    echo "❌ Error: resources/biomistral-7b not found!"
+    echo "Please download BioMistral-7B model to resources/biomistral-7b/"
     exit 1
 fi
 

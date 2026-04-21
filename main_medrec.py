@@ -155,7 +155,7 @@ parser.add_argument("--num_trm_layers",
 
 # LLM Parameters
 parser.add_argument("--llm_path",
-                    default="./resources/llama-7b-hf/",
+                    default="./resources/biomistral-7b/",
                     type=str,
                     help="The path of large language model.")
 parser.add_argument("--peft_path",
