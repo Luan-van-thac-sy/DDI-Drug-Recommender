@@ -11,14 +11,19 @@ from transformers.modeling_outputs import SequenceClassifierOutputWithPast
 class LlamaForMedRec(LlamaPreTrainedModel):
 
     def __init__(self, config: PretrainedConfig, *inputs, **kwargs):
+        self.ddi_adj = kwargs.pop("ddi_adj", None)
+        self.med_voc = kwargs.pop("med_voc")
         
         super().__init__(config, *inputs, **kwargs)
         self.model = LlamaModel(config)
-        self.med_voc = kwargs.pop("med_voc")
         self.cls_head = nn.Linear(config.hidden_size, self.med_voc, bias=False)
 
         # Initialize weights and apply final processing
         self.post_init()
+        
+        # Ensure ddi_adj is a registered buffer so it moves to GPU automatically
+        if self.ddi_adj is not None:
+            self.register_buffer("ddi_adj_buffer", self.ddi_adj)
 
 
     def get_input_embeddings(self):
@@ -88,8 +93,33 @@ class LlamaForMedRec(LlamaPreTrainedModel):
 
             #loss_fct = CrossEntropyLoss()
             #loss = loss_fct(pooled_logits, labels)
-            loss_fct = BCEWithLogitsLoss()
-            loss = loss_fct(pooled_logits, labels.float())
+            # Use pos_weight < 1.0 to penalize False Positives more than False Negatives
+            # This makes the model more conservative, boosting Precision.
+            pos_weight_val = 0.5
+            pos_weight = torch.full([self.med_voc], pos_weight_val).to(logits.device)
+            loss_fct = BCEWithLogitsLoss(pos_weight=pos_weight)
+            # Calculate standard BCE classification loss
+            bce_loss = loss_fct(pooled_logits, labels.float())
+            
+            # Add DDI Penalty
+            if hasattr(self, "ddi_adj_buffer") and self.ddi_adj_buffer is not None:
+                probs = torch.sigmoid(pooled_logits) # (bs, med_voc_size)
+                # Compute probs^T @ ddi_adj @ probs
+                ddi_penalty = torch.bmm(
+                    torch.bmm(
+                        probs.unsqueeze(1), # (bs, 1, V)
+                        self.ddi_adj_buffer.unsqueeze(0).expand(probs.size(0), -1, -1) # (bs, V, V)
+                    ),
+                    probs.unsqueeze(2) # (bs, V, 1)
+                ).squeeze() # (bs,)
+                
+                ddi_loss_mean = ddi_penalty.mean()
+                
+                # Combine losses
+                ddi_weight = 0.05 
+                loss = bce_loss + (ddi_weight * ddi_loss_mean)
+            else:
+                loss = bce_loss
         if not return_dict:
             output = (pooled_logits,) + transformer_outputs[1:]
             return ((loss,) + output) if loss is not None else output

@@ -95,10 +95,21 @@ def train():
     voc_dir = f"data/{dataset_name}/handled/voc_final.pkl"
     ehr_tokenizer = EHRTokenizer(voc_dir)
 
+    # Load DDI Adjacency matrix for Teacher DDI penalty
+    import dill
+    ddi_path = f"data/{dataset_name}/handled/full/ddi_A_final.pkl"
+    ddi_adj = None
+    if os.path.exists(ddi_path):
+        with open(ddi_path, "rb") as f:
+            ddi_adj_raw = dill.load(f)
+            ddi_adj = torch.FloatTensor(ddi_adj_raw)
+            print(f"Loaded DDI matrix of shape {ddi_adj.shape} for Teacher DDI Loss")
+
     ## Load Model ##
     model = MistralForMedRec.from_pretrained(
         model_args.model_name_or_path,
         med_voc=len(ehr_tokenizer.med_voc.word2idx),
+        ddi_adj=ddi_adj,
         # TODO: add device map and torch dtype for colab
         device_map="auto",
         torch_dtype=torch.float16,
