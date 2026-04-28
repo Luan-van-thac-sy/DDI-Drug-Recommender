@@ -104,17 +104,19 @@ class MistralForMedRec(MistralPreTrainedModel):
             # Add DDI Penalty
             if hasattr(self, "ddi_adj_buffer") and self.ddi_adj_buffer is not None:
                 probs = torch.sigmoid(pooled_logits) # (bs, med_voc_size)
+                # Cast ddi_adj_buffer to match probs dtype (fp16/bf16 compatibility)
+                ddi_adj = self.ddi_adj_buffer.to(dtype=probs.dtype)
                 # Compute probs^T @ ddi_adj @ probs
                 ddi_penalty = torch.bmm(
                     torch.bmm(
                         probs.unsqueeze(1), # (bs, 1, V)
-                        self.ddi_adj_buffer.unsqueeze(0).expand(probs.size(0), -1, -1) # (bs, V, V)
+                        ddi_adj.unsqueeze(0).expand(probs.size(0), -1, -1) # (bs, V, V)
                     ),
                     probs.unsqueeze(2) # (bs, V, 1)
                 ).squeeze(-1).squeeze(-1) # (bs,) - safe squeeze for bs=1
                 
                 # Normalize by number of DDI pairs to keep loss magnitude stable
-                num_ddi_pairs = self.ddi_adj_buffer.sum().clamp(min=1.0)
+                num_ddi_pairs = ddi_adj.sum().clamp(min=1.0)
                 ddi_penalty = ddi_penalty / num_ddi_pairs
                 
                 ddi_loss_mean = ddi_penalty.mean()
