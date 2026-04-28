@@ -111,13 +111,17 @@ class LlamaForMedRec(LlamaPreTrainedModel):
                         self.ddi_adj_buffer.unsqueeze(0).expand(probs.size(0), -1, -1) # (bs, V, V)
                     ),
                     probs.unsqueeze(2) # (bs, V, 1)
-                ).squeeze() # (bs,)
+                ).squeeze(-1).squeeze(-1) # (bs,) - safe squeeze for bs=1
+                
+                # Normalize by number of DDI pairs to keep loss magnitude stable
+                num_ddi_pairs = self.ddi_adj_buffer.sum().clamp(min=1.0)
+                ddi_penalty = ddi_penalty / num_ddi_pairs
                 
                 ddi_loss_mean = ddi_penalty.mean()
                 
-                # Combine losses
-                ddi_weight = 0.05 
-                loss = bce_loss + (ddi_weight * ddi_loss_mean)
+                # Combine losses using KELLM Equation 14: L = (1-β) * BCE + β * DDI
+                ddi_weight = 0.05  # Beta
+                loss = (1 - ddi_weight) * bce_loss + (ddi_weight * ddi_loss_mean)
             else:
                 loss = bce_loss
         if not return_dict:

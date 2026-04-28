@@ -40,6 +40,18 @@ def evaluate_jsonlines(data_path, ehr_tokenizer, threshold=0.5,
     all_pred_drug_codes = []
     all_subject_ids = []
 
+    # Load ATC mapping
+    try:
+        from evaluate_atc import load_or_create_mapping
+        db2atc = load_or_create_mapping("improve/input/db2atc.json")
+    except ImportError:
+        db2atc = {}
+
+    atc_jaccard_scores = []
+    atc_precision_scores = []
+    atc_recall_scores = []
+    atc_f1_scores = []
+
     for row, meta_data in enumerate(raw_data):
         meta_pred_data_prob = np.array(meta_data["target"])
         pred_data_prob.append(np_sigmoid(meta_pred_data_prob))
@@ -54,6 +66,28 @@ def evaluate_jsonlines(data_path, ehr_tokenizer, threshold=0.5,
 
         all_true_drug_codes.append(meta_data["drug_code"])
         all_subject_ids.append(meta_data.get("subject_id", row))
+
+        # --- Calculate ATC-level metrics for this patient ---
+        true_db_codes = meta_data.get("drug_code", [])
+        true_atc_set = set([db2atc.get(db, "UNKNOWN") for db in true_db_codes])
+
+        pred_indices = np.where(meta_pred_data == 1)[0]
+        pred_db_codes = [ehr_tokenizer.med_voc.idx2word[i] for i in pred_indices]
+        pred_atc_set = set([db2atc.get(db, "UNKNOWN") for db in pred_db_codes])
+
+        inter = true_atc_set.intersection(pred_atc_set)
+        union = true_atc_set.union(pred_atc_set)
+
+        ja = len(inter) / len(union) if len(union) > 0 else 0.0
+        pr = len(inter) / len(pred_atc_set) if len(pred_atc_set) > 0 else 0.0
+        re = len(inter) / len(true_atc_set) if len(true_atc_set) > 0 else 0.0
+        f1 = (2 * pr * re) / (pr + re) if (pr + re) > 0 else 0.0
+
+        atc_jaccard_scores.append(ja)
+        atc_precision_scores.append(pr)
+        atc_recall_scores.append(re)
+        atc_f1_scores.append(f1)
+        # ----------------------------------------------------
 
         try:
             visits = int(meta_data["input"].split("The patient has ")[1].split(" times ICU visits.")[0])
@@ -82,6 +116,12 @@ def evaluate_jsonlines(data_path, ehr_tokenizer, threshold=0.5,
         'ddi_rate': float(ddi),
         'num_samples': len(raw_data),
     }
+
+    if atc_jaccard_scores:
+        results['atc_jaccard'] = float(np.mean(atc_jaccard_scores))
+        results['atc_f1'] = float(np.mean(atc_f1_scores))
+        results['atc_precision'] = float(np.mean(atc_precision_scores))
+        results['atc_recall'] = float(np.mean(atc_recall_scores))
 
     # Single-visit vs Multi-visit breakdown
     seq_len = np.array(seq_len)
@@ -193,6 +233,13 @@ def print_results(results, name=""):
     print(f"    Precision: {results['precision']:.4f}")
     print(f"    Recall:    {results['recall']:.4f}")
 
+    if 'atc_jaccard' in results:
+        print(f"\n  Effectiveness Metrics (ATC-Level):")
+        print(f"    Jaccard:   {results['atc_jaccard']:.4f}")
+        print(f"    F1:        {results['atc_f1']:.4f}")
+        print(f"    Precision: {results['atc_precision']:.4f}")
+        print(f"    Recall:    {results['atc_recall']:.4f}")
+
     print(f"\n  Safety Metrics:")
     print(f"    DDI Rate:  {results['ddi_rate']:.4f}")
     if 'mdc_rate' in results:
@@ -224,16 +271,20 @@ def compare_runs(results_dict):
         print("No results to compare.")
         return
 
-    print("\n" + "=" * 90)
+    print("\n" + "=" * 135)
     print("COMPARISON TABLE")
-    print("=" * 90)
-    print(f"{'Run':<25} {'Jaccard':>8} {'PRAUC':>8} {'F1':>8} {'DDI Rate':>10} {'MDC Rate':>10}")
-    print("-" * 90)
+    print("=" * 135)
+    print(f"{'Run':<25} {'Jaccard':>8} {'F1':>8} | {'ATC_Jac':>8} {'ATC_F1':>8} | {'Precision':>9} {'Recall':>9} | {'DDI Rate':>10} {'MDC Rate':>10}")
+    print("-" * 135)
     for name, res in results_dict.items():
         mdc = f"{res.get('mdc_rate', 0):.4f}" if 'mdc_rate' in res else "N/A"
-        print(f"{name:<25} {res['jaccard']:>8.4f} {res['prauc']:>8.4f} "
-              f"{res['f1']:>8.4f} {res['ddi_rate']:>10.4f} {mdc:>10}")
-    print("=" * 90)
+        atc_j = f"{res.get('atc_jaccard', 0):.4f}" if 'atc_jaccard' in res else "N/A"
+        atc_f1 = f"{res.get('atc_f1', 0):.4f}" if 'atc_f1' in res else "N/A"
+        print(f"{name:<25} {res['jaccard']:>8.4f} {res['f1']:>8.4f} | "
+              f"{atc_j:>8} {atc_f1:>8} | "
+              f"{res['precision']:>9.4f} {res['recall']:>9.4f} | "
+              f"{res['ddi_rate']:>10.4f} {mdc:>10}")
+    print("=" * 135)
 
     # Find best for each metric
     if len(results_dict) > 1:
