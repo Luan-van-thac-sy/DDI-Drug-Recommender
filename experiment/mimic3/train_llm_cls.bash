@@ -32,10 +32,13 @@ deepspeed --num_gpus=1 --master_port $MASTER_PORT main_llm_cls.py \
     --gradient_accumulation_steps 2 \
     --max_steps ${MAX_STEPS} \
     --logging_steps 100 \
-    --save_steps ${MAX_STEPS} \
+    --save_steps 500 \
+    --save_total_limit 3 \
     --learning_rate $LR \
     --lora_rank ${lora_rank} \
     --trainable ${lora_trainable} \
     --modules_to_save ${modules_to_save} \
     --lora_dropout ${lora_dropout} \
+    --pos_weight 8.0 \
+    --teacher_ddi_weight 0.0 \
     --fp16

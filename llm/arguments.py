@@ -68,6 +68,16 @@ class ModelArguments:
     debug_mode: Optional[bool] = field(default=False)
     peft_path: Optional[str] = field(default=None)
     classification: Optional[bool] = field(default=False)
+    pos_weight: Optional[float] = field(
+        default=8.0,
+        metadata={"help": "pos_weight for BCEWithLogitsLoss. Higher values boost recall. "
+                          "Set based on neg:pos ratio (~9:1 for 15/151 drugs). Use 0 for no pos_weight."}
+    )
+    teacher_ddi_weight: Optional[float] = field(
+        default=0.0,
+        metadata={"help": "DDI penalty weight for teacher model. 0.0 = no DDI loss (recommended for teacher). "
+                          "LEADER paper uses no DDI loss for teacher; DDI is handled by student."}
+    )
 
 
 @dataclass

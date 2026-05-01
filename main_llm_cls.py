@@ -110,10 +110,12 @@ def train():
         model_args.model_name_or_path,
         med_voc=len(ehr_tokenizer.med_voc.word2idx),
         ddi_adj=ddi_adj,
-        # TODO: add device map and torch dtype for colab
+        pos_weight_val=model_args.pos_weight,
+        ddi_weight=model_args.teacher_ddi_weight,
         device_map="auto",
         torch_dtype=torch.float16,
     )
+    print(f"Teacher config: pos_weight={model_args.pos_weight}, ddi_weight={model_args.teacher_ddi_weight}")
 
     if model_args.peft_path is not None:  # for test model
         # Resume_training

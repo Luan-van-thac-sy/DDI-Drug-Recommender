@@ -64,13 +64,17 @@ def multi_label_metric(y_gt, y_pred, y_prob):
                 score.append(0)
             else:
                 score.append(
-                    2*average_prc[idx]*average_recall[idx] / (average_prc[idx] + average_recall[idx]))
+                    2
+                    * average_prc[idx]
+                    * average_recall[idx]
+                    / (average_prc[idx] + average_recall[idx])
+                )
         return score
 
     def f1(y_gt, y_pred):
         all_micro = []
         for b in range(y_gt.shape[0]):
-            all_micro.append(f1_score(y_gt[b], y_pred[b], average='macro'))
+            all_micro.append(f1_score(y_gt[b], y_pred[b], average="macro"))
         return np.mean(all_micro)
 
     def roc_auc(y_gt, y_prob):
@@ -78,8 +82,7 @@ def multi_label_metric(y_gt, y_pred, y_prob):
         for b in range(len(y_gt)):
             if np.any(np.isnan(y_prob[b])) or np.any(np.isinf(y_prob[b])):
                 continue  # skip samples with NaN/Inf predictions
-            all_micro.append(roc_auc_score(
-                y_gt[b], y_prob[b], average='macro'))
+            all_micro.append(roc_auc_score(y_gt[b], y_prob[b], average="macro"))
         return np.mean(all_micro) if all_micro else 0.0
 
     def precision_auc(y_gt, y_prob):
@@ -88,8 +91,9 @@ def multi_label_metric(y_gt, y_pred, y_prob):
             if np.any(np.isnan(y_prob[b])) or np.any(np.isinf(y_prob[b])):
                 all_micro.append(0.0)
                 continue
-            all_micro.append(average_precision_score(
-                y_gt[b], y_prob[b], average='macro'))
+            all_micro.append(
+                average_precision_score(y_gt[b], y_prob[b], average="macro")
+            )
         return all_micro
 
     def precision_at_k(y_gt, y_prob, k=3):
@@ -115,8 +119,15 @@ def multi_label_metric(y_gt, y_pred, y_prob):
     avg_f1 = average_f1(avg_prc, avg_recall)
     mean, std = multi_test(prauc, ja, avg_f1)
 
-    return np.mean(ja), np.mean(prauc), np.mean(avg_prc), np.mean(avg_recall), np.mean(avg_f1), mean, std
-
+    return (
+        np.mean(ja),
+        np.mean(prauc),
+        np.mean(avg_prc),
+        np.mean(avg_recall),
+        np.mean(avg_f1),
+        mean,
+        std,
+    )
 
 
 def ddi_rate_score(record, ddi_A):
@@ -139,11 +150,136 @@ def ddi_rate_score(record, ddi_A):
     return dd_cnt / all_cnt
 
 
+def get_ddi_pairs(predicted_indices, ddi_A):
+    """Get all DDI pairs in predicted drugs.
+
+    Args:
+        predicted_indices: list of predicted drug indices
+        ddi_A: DDI adjacency matrix (num_drugs, num_drugs)
+
+    Returns:
+        List of tuples (drug_i, drug_j) for each DDI pair
+    """
+    ddi_pairs = []
+    for i, med_i in enumerate(predicted_indices):
+        for j, med_j in enumerate(predicted_indices):
+            if j <= i:
+                continue
+            if ddi_A[med_i, med_j] == 1 or ddi_A[med_j, med_i] == 1:
+                ddi_pairs.append((med_i, med_j))
+    return ddi_pairs
+
+
+def apply_ddi_constraints(y_prob, ddi_A, threshold=0.5, max_iterations=10):
+    """Apply DDI-aware constraints using greedy substitution.
+
+    For each sample, if the initial predictions contain DDI pairs:
+    - Remove drugs causing DDI one at a time
+    - Add the next-highest probability non-DDI drugs as replacements
+    - Repeat until no DDI pairs remain or no more candidates available
+
+    Args:
+        y_prob: numpy array of shape (num_samples, num_drugs) with probabilities
+        ddi_A: DDI adjacency matrix (num_drugs, num_drugs)
+        threshold: classification threshold (default: 0.5)
+        max_iterations: max iterations for constraint solving (default: 10)
+
+    Returns:
+        y_pred_constrained: numpy array of shape (num_samples, num_drugs) with binary predictions
+    """
+    y_prob = np.array(y_prob)
+    num_samples = y_prob.shape[0]
+    num_drugs = y_prob.shape[1]
+
+    y_pred_constrained = np.zeros_like(y_prob)
+
+    for sample_idx in range(num_samples):
+        probs = y_prob[sample_idx]
+
+        # Initial predictions above threshold
+        initial_pred = np.where(probs > threshold)[0]
+
+        if len(initial_pred) == 0:
+            # No predictions above threshold, use top-1
+            top_idx = np.argmax(probs)
+            if probs[top_idx] > 0:
+                y_pred_constrained[sample_idx, top_idx] = 1
+            continue
+
+        # Check if any DDI pairs exist
+        ddi_pairs = get_ddi_pairs(initial_pred, ddi_A)
+
+        if len(ddi_pairs) == 0:
+            # No DDI, keep predictions
+            y_pred_constrained[sample_idx, initial_pred] = 1
+            continue
+
+        # Greedy constraint solving
+        current_pred = set(initial_pred)
+        current_probs = probs.copy()
+
+        for _ in range(max_iterations):
+            # Check current DDI pairs
+            ddi_pairs = get_ddi_pairs(list(current_pred), ddi_A)
+
+            if len(ddi_pairs) == 0:
+                break
+
+            # Find the drug with most DDI to remove first
+            ddi_count = {}
+            for med_i, med_j in ddi_pairs:
+                ddi_count[med_i] = ddi_count.get(med_i, 0) + 1
+                ddi_count[med_j] = ddi_count.get(med_j, 0) + 1
+
+            # Remove drug with most DDI interactions
+            drug_to_remove = max(ddi_count, key=ddi_count.get)
+            current_pred.discard(drug_to_remove)
+
+            # Try to add a replacement: highest prob drug not in current_pred that doesn't cause DDI
+            available = []
+            for drug_idx in range(num_drugs):
+                if drug_idx in current_pred:
+                    continue
+                if current_probs[drug_idx] < threshold * 0.5:
+                    continue
+
+                # Check if this drug causes DDI with any current prediction
+                causes_ddi = False
+                for pred_drug in current_pred:
+                    if (
+                        ddi_A[pred_drug, drug_idx] == 1
+                        or ddi_A[drug_idx, pred_drug] == 1
+                    ):
+                        causes_ddi = True
+                        break
+
+                if not causes_ddi:
+                    available.append((drug_idx, current_probs[drug_idx]))
+
+            if available:
+                # Add the highest prob non-DDI drug
+                available.sort(key=lambda x: x[1], reverse=True)
+                new_drug = available[0][0]
+                current_pred.add(new_drug)
+
+        # Set final predictions
+        for drug_idx in current_pred:
+            y_pred_constrained[sample_idx, drug_idx] = 1
+
+        # Ensure at least one prediction
+        if y_pred_constrained[sample_idx].sum() == 0:
+            top_idx = np.argmax(probs)
+            y_pred_constrained[sample_idx, top_idx] = 1
+
+    return y_pred_constrained
+
 
 def metric_report(logger, y_pred, y_true, therhold=0.5, ddi_graph=None):
     # Replace NaN/Inf with 0 to prevent metric crashes
     if np.any(np.isnan(y_pred)) or np.any(np.isinf(y_pred)):
-        logger.warning("WARNING: y_pred contains NaN/Inf — replacing with 0. Model may have exploding gradients.")
+        logger.warning(
+            "WARNING: y_pred contains NaN/Inf — replacing with 0. Model may have exploding gradients."
+        )
         y_pred = np.nan_to_num(y_pred, nan=0.0, posinf=1.0, neginf=0.0)
 
     y_prob = y_pred.copy()
@@ -152,17 +288,18 @@ def metric_report(logger, y_pred, y_true, therhold=0.5, ddi_graph=None):
 
     acc_container = {}
     ja, prauc, avg_p, avg_r, avg_f1, mean, std = multi_label_metric(
-        y_true, y_pred, y_prob)
-    acc_container['jaccard'] = ja
-    acc_container['f1'] = avg_f1
-    acc_container['prauc'] = prauc
+        y_true, y_pred, y_prob
+    )
+    acc_container["jaccard"] = ja
+    acc_container["f1"] = avg_f1
+    acc_container["prauc"] = prauc
 
     pred_label = [[sorted(np.where(meta_pred == 1)[0])] for meta_pred in y_pred]
     ddi = ddi_rate_score(pred_label, ddi_graph)
     acc_container["ddi"] = ddi
 
     for k, v in acc_container.items():
-        logger.info('%-10s : %-10.4f' % (k, v))
+        logger.info("%-10s : %-10.4f" % (k, v))
     logger.info("10-rounds PRAUC: %.5f + %.5f" % (mean[0], std[0]))
     logger.info("10-rounds Jaccard: %.5f + %.5f" % (mean[1], std[1]))
     logger.info("10-rounds F1-score: %.5f + %.5f" % (mean[2], std[2]))
@@ -173,7 +310,9 @@ def metric_report(logger, y_pred, y_true, therhold=0.5, ddi_graph=None):
 def metric_report_group(logger, y_pred, y_true, seq_len, therhold=0.5, ddi_graph=None):
     # Replace NaN/Inf with 0 to prevent metric crashes
     if np.any(np.isnan(y_pred)) or np.any(np.isinf(y_pred)):
-        logger.warning("WARNING: y_pred contains NaN/Inf in group metrics — replacing with 0.")
+        logger.warning(
+            "WARNING: y_pred contains NaN/Inf in group metrics — replacing with 0."
+        )
         y_pred = np.nan_to_num(y_pred, nan=0.0, posinf=1.0, neginf=0.0)
 
     y_prob = y_pred.copy()
@@ -181,36 +320,40 @@ def metric_report_group(logger, y_pred, y_true, seq_len, therhold=0.5, ddi_graph
     y_pred[y_pred <= therhold] = 0
 
     # get the single visit and multi visit index to take out them
-    single_index = (seq_len == 1)
-    multi_index = (seq_len != 1)
+    single_index = seq_len == 1
+    multi_index = seq_len != 1
     acc_container = {}
     if single_index.sum() == 0:  # no single-visit condition
         s_ja, s_prauc, s_avg_p, s_avg_r, s_avg_f1 = 0, 0, 0, 0, 0
         s_mean = [0, 0, 0]
         s_std = [0, 0, 0]
     else:
-        s_ja, s_prauc, s_avg_p, s_avg_r, s_avg_f1, s_mean, s_std = multi_label_metric(y_true[single_index], 
-                                                                    y_pred[single_index], 
-                                                                    y_prob[single_index])
-    m_ja, m_prauc, m_avg_p, m_avg_r, m_avg_f1, m_mean, m_std = multi_label_metric(y_true[multi_index], 
-                                                                   y_pred[multi_index], 
-                                                                   y_prob[multi_index])
-    acc_container['single-jaccard'] = s_ja
-    acc_container['single-f1'] = s_avg_f1
-    acc_container['single-prauc'] = s_prauc
-    acc_container['multiple-jaccard'] = m_ja
-    acc_container['multiple-f1'] = m_avg_f1
-    acc_container['multiple-prauc'] = m_prauc
+        s_ja, s_prauc, s_avg_p, s_avg_r, s_avg_f1, s_mean, s_std = multi_label_metric(
+            y_true[single_index], y_pred[single_index], y_prob[single_index]
+        )
+    m_ja, m_prauc, m_avg_p, m_avg_r, m_avg_f1, m_mean, m_std = multi_label_metric(
+        y_true[multi_index], y_pred[multi_index], y_prob[multi_index]
+    )
+    acc_container["single-jaccard"] = s_ja
+    acc_container["single-f1"] = s_avg_f1
+    acc_container["single-prauc"] = s_prauc
+    acc_container["multiple-jaccard"] = m_ja
+    acc_container["multiple-f1"] = m_avg_f1
+    acc_container["multiple-prauc"] = m_prauc
 
-    s_pred_label = [[sorted(np.where(meta_pred == 1)[0])] for meta_pred in y_pred[single_index]]
+    s_pred_label = [
+        [sorted(np.where(meta_pred == 1)[0])] for meta_pred in y_pred[single_index]
+    ]
     s_ddi = ddi_rate_score(s_pred_label, ddi_graph)
     acc_container["single-ddi"] = s_ddi
-    m_pred_label = [[sorted(np.where(meta_pred == 1)[0])] for meta_pred in y_pred[multi_index]]
+    m_pred_label = [
+        [sorted(np.where(meta_pred == 1)[0])] for meta_pred in y_pred[multi_index]
+    ]
     m_ddi = ddi_rate_score(m_pred_label, ddi_graph)
     acc_container["multi-ddi"] = m_ddi
 
     for k, v in acc_container.items():
-        logger.info('%-10s : %-10.4f' % (k, v))
+        logger.info("%-10s : %-10.4f" % (k, v))
 
     logger.info("Single-visit 10-rounds PRAUC: %.5f + %.5f" % (s_mean[0], s_std[0]))
     logger.info("Single-vist 10-rounds Jaccard: %.5f + %.5f" % (s_mean[1], s_std[1]))
@@ -231,13 +374,13 @@ def get_n_params(model):
     for p in list(model.parameters()):
         nn = 1
         for s in list(p.size()):
-            nn = nn*s
+            nn = nn * s
         pp += nn
     return pp
 
 
 def set_seed(seed):
-    '''Fix all of random seed for reproducible training'''
+    """Fix all of random seed for reproducible training"""
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
@@ -247,30 +390,32 @@ def set_seed(seed):
 
 def log_efficiency(best_epoch, train_time, fp_num, ap_num, args, now_str):
 
-    out_path = args.out_exp.split('/')[-1]
-    out_path = os.path.join('./log/efficiency', out_path)
+    out_path = args.out_exp.split("/")[-1]
+    out_path = os.path.join("./log/efficiency", out_path)
 
     if not os.path.exists(out_path):
-        with open(out_path, 'w+') as f:
+        with open(out_path, "w+") as f:
             json.dump({}, f)
-    
-    with open(out_path, 'r') as f:
+
+    with open(out_path, "r") as f:
         res_dict = json.load(f)
 
-    res = {'best_epoch': best_epoch,
-           'train_time': train_time,
-           'fp_num': fp_num,
-           'ap_num':ap_num}
-    new_dict = {'model': args.model_name, 'hos_id': args.hos_id}
+    res = {
+        "best_epoch": best_epoch,
+        "train_time": train_time,
+        "fp_num": fp_num,
+        "ap_num": ap_num,
+    }
+    new_dict = {"model": args.model_name, "hos_id": args.hos_id}
     new_dict.update(res)
     res_dict.update({now_str: new_dict})
 
-    with open(out_path, 'w') as f:
+    with open(out_path, "w") as f:
         json.dump(res_dict, f)
-    
+
 
 def read_jsonlines(data_path):
-    '''read data from jsonlines file'''
+    """read data from jsonlines file"""
     data = []
 
     with jsonlines.open(data_path, "r") as f:
@@ -281,7 +426,7 @@ def read_jsonlines(data_path):
 
 
 def save_jsonlines(data_path, data):
-    '''write all_data list to a new jsonl'''
+    """write all_data list to a new jsonl"""
     with jsonlines.open(data_path, "w") as w:
         for meta_data in data:
             w.write(meta_data)
@@ -293,7 +438,7 @@ def log_res(args, res):
     res_dir = "./log/results/"
     if not os.path.exists(res_dir):
         os.makedirs(res_dir)
-    
+
     if args.out_file == "none":
         out_file = args.dataset + ".json"
     else:
@@ -302,15 +447,15 @@ def log_res(args, res):
 
     # for the first record
     if not os.path.exists(out_path):
-        with open(out_path, 'w+') as f:
+        with open(out_path, "w+") as f:
             json.dump({}, f)
-    
-    with open(out_path, 'r') as f:
+
+    with open(out_path, "r") as f:
         res_dict = json.load(f)
 
     res_dict.update({args.model_name + "-" + args.mark_name: res})
 
-    with open(out_path, 'w') as f:
+    with open(out_path, "w") as f:
         json.dump(res_dict, f)
 
 
@@ -338,4 +483,3 @@ def multi_test(prauc, ja, f1):
     # print(outstring)
 
     return mean, std
-
