@@ -69,9 +69,11 @@ class ModelArguments:
     peft_path: Optional[str] = field(default=None)
     classification: Optional[bool] = field(default=False)
     pos_weight: Optional[float] = field(
-        default=8.0,
-        metadata={"help": "pos_weight for BCEWithLogitsLoss. Higher values boost recall. "
-                          "Set based on neg:pos ratio (~9:1 for 15/151 drugs). Use 0 for no pos_weight."}
+        default=-1,
+        metadata={"help": "pos_weight for BCEWithLogitsLoss. "
+                          "-1 = auto-compute per-label weight from training data (RECOMMENDED). "
+                          "0 = no pos_weight (standard BCE). "
+                          ">0 = single value for all labels (e.g., 3.0, 8.0)."}
     )
     teacher_ddi_weight: Optional[float] = field(
         default=0.0,

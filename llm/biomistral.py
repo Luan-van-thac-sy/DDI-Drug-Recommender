@@ -14,7 +14,7 @@ class MistralForMedRec(MistralPreTrainedModel):
     def __init__(self, config: PretrainedConfig, *inputs, **kwargs):
         self.ddi_adj = kwargs.pop("ddi_adj", None)
         self.med_voc = kwargs.pop("med_voc")
-        self.pos_weight_val = kwargs.pop("pos_weight_val", 8.0)
+        self.pos_weight_val = kwargs.pop("pos_weight_val", None)  # float, tensor, or None
         self.ddi_weight = kwargs.pop("ddi_weight", 0.0)
 
         super().__init__(config, *inputs, **kwargs)
@@ -94,11 +94,16 @@ class MistralForMedRec(MistralPreTrainedModel):
         if labels is not None:
             labels = labels.to(logits.device)
 
-            # pos_weight compensates for label sparsity (~15 drugs out of 151)
-            # Higher values boost recall; 0 = no pos_weight (standard BCE)
-            if self.pos_weight_val and self.pos_weight_val > 0:
-                pos_weight = torch.full([self.med_voc], self.pos_weight_val).to(logits.device)
-                loss_fct = BCEWithLogitsLoss(pos_weight=pos_weight)
+            # pos_weight compensates for label sparsity
+            # Accepts: per-label tensor, single float, or None/0 for standard BCE
+            if self.pos_weight_val is not None:
+                if isinstance(self.pos_weight_val, torch.Tensor):
+                    pos_weight = self.pos_weight_val.to(logits.device)
+                elif isinstance(self.pos_weight_val, (int, float)) and self.pos_weight_val > 0:
+                    pos_weight = torch.full([self.med_voc], self.pos_weight_val).to(logits.device)
+                else:
+                    pos_weight = None
+                loss_fct = BCEWithLogitsLoss(pos_weight=pos_weight) if pos_weight is not None else BCEWithLogitsLoss()
             else:
                 loss_fct = BCEWithLogitsLoss()
 

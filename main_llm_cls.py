@@ -105,17 +105,43 @@ def train():
             ddi_adj = torch.FloatTensor(ddi_adj_raw)
             print(f"Loaded DDI matrix of shape {ddi_adj.shape} for Teacher DDI Loss")
 
+    ## Compute per-label pos_weight from training data ##
+    pos_weight_val = model_args.pos_weight  # default: single float or 0
+    if model_args.pos_weight == -1 and data_args.train_file is not None:
+        # pos_weight=-1 means: auto-compute per-label weight from training data
+        import numpy as np
+        print("Computing per-label pos_weight from training data...")
+        with open(data_args.train_file, "r", encoding="utf-8") as f:
+            train_labels = []
+            for line in f:
+                sample = json.loads(line)
+                train_labels.append(sample["drug_code"])
+        train_labels = np.array(train_labels)
+        num_samples = len(train_labels)
+        pos_count = train_labels.sum(axis=0)
+        neg_count = num_samples - pos_count
+        per_label = neg_count / np.maximum(pos_count, 1)
+        per_label = np.clip(per_label, 1.0, 50.0)  # cap between 1-50
+        pos_weight_val = torch.FloatTensor(per_label)
+        print(f"Per-label pos_weight: min={per_label.min():.1f}, max={per_label.max():.1f}, "
+              f"mean={per_label.mean():.1f}, median={np.median(per_label):.1f}")
+    elif model_args.pos_weight > 0:
+        pos_weight_val = model_args.pos_weight
+    else:
+        pos_weight_val = None
+
     ## Load Model ##
     model = MistralForMedRec.from_pretrained(
         model_args.model_name_or_path,
         med_voc=len(ehr_tokenizer.med_voc.word2idx),
         ddi_adj=ddi_adj,
-        pos_weight_val=model_args.pos_weight,
+        pos_weight_val=pos_weight_val,
         ddi_weight=model_args.teacher_ddi_weight,
         device_map="auto",
         torch_dtype=torch.float16,
     )
-    print(f"Teacher config: pos_weight={model_args.pos_weight}, ddi_weight={model_args.teacher_ddi_weight}")
+    print(f"Teacher config: pos_weight={'per-label' if isinstance(pos_weight_val, torch.Tensor) else pos_weight_val}, "
+          f"ddi_weight={model_args.teacher_ddi_weight}")
 
     if model_args.peft_path is not None:  # for test model
         # Resume_training
