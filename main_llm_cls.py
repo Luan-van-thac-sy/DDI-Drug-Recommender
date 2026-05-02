@@ -111,14 +111,18 @@ def train():
         # pos_weight=-1 means: auto-compute per-label weight from training data
         import numpy as np
         print("Computing per-label pos_weight from training data...")
+        num_drugs = len(ehr_tokenizer.med_voc.word2idx)
+        word2idx = ehr_tokenizer.med_voc.word2idx
+        pos_count = np.zeros(num_drugs)
+        num_samples = 0
         with open(data_args.train_file, "r", encoding="utf-8") as f:
-            train_labels = []
             for line in f:
                 sample = json.loads(line)
-                train_labels.append(sample["drug_code"])
-        train_labels = np.array(train_labels)
-        num_samples = len(train_labels)
-        pos_count = train_labels.sum(axis=0)
+                drug_codes = sample["drug_code"]  # list of DrugBank IDs like ["DB00184", ...]
+                for db_id in drug_codes:
+                    if db_id in word2idx:
+                        pos_count[word2idx[db_id]] += 1
+                num_samples += 1
         neg_count = num_samples - pos_count
         per_label = neg_count / np.maximum(pos_count, 1)
         per_label = np.clip(per_label, 1.0, 50.0)  # cap between 1-50
