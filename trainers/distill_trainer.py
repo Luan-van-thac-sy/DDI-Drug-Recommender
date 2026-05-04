@@ -59,7 +59,7 @@ class DistillTrainer(Trainer):
             self.teacher = MistralForMedRec.from_pretrained(
                 self.args.llm_path,
                 med_voc=len(self.tokenizer.med_voc.word2idx),
-            ).half().to(self.device)
+            ).to(torch.bfloat16).to(self.device)
             self.teacher = PeftModelForCLS.from_pretrained(self.teacher, self.args.peft_path, is_trainable=False)
         else:
             self.teacher = None

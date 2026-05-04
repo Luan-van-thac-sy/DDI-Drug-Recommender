@@ -125,7 +125,8 @@ def train():
                 num_samples += 1
         neg_count = num_samples - pos_count
         per_label = neg_count / np.maximum(pos_count, 1)
-        per_label = np.clip(per_label, 1.0, 50.0)  # cap between 1-50
+        per_label = np.sqrt(per_label)  # sqrt scale to reduce extreme values
+        per_label = np.clip(per_label, 1.0, 5.0)  # cap between 1-5
         pos_weight_val = torch.FloatTensor(per_label)
         print(f"Per-label pos_weight: min={per_label.min():.1f}, max={per_label.max():.1f}, "
               f"mean={per_label.mean():.1f}, median={np.median(per_label):.1f}")

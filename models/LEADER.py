@@ -229,7 +229,10 @@ class LEADER(nn.Module):
                     mediator = self.medrec[1](self.medrec[0](torch.cat([diag_emb, proc_emb, med_emb], dim=1)))
                     mediator = self.projector(mediator)
                     pseudo_hidden = llm_output["hidden_states"].float().detach()
-                    distill_loss = self.distill_loss_fct_mse(mediator, pseudo_hidden)
+                    # Normalize both to unit vectors to prevent MSE explosion
+                    mediator_norm = torch.nn.functional.normalize(mediator, dim=-1)
+                    pseudo_norm = torch.nn.functional.normalize(pseudo_hidden, dim=-1)
+                    distill_loss = self.distill_loss_fct_mse(mediator_norm, pseudo_norm)
                     distill_loss = distill_loss.mean(dim=-1)
                 loss = loss + self.alpha * distill_loss
 
