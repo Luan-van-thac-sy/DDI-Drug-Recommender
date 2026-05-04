@@ -52,7 +52,8 @@ def main():
         align=True, align_weight=0.005, profile=True, prompt_num=1,
         num_trm_layers=1, ddi=True, ml_weight=0.05,
         mdc=False, mdc_weight=0.03, max_seq_length=100,
-        max_record_num=10, max_source_length=1056
+        max_record_num=10, max_source_length=1056,
+        temperature=10, therhold=0.3, graph=False
     )
     test_dataset = DistillEHRDataset(test_data, tokenizer, profile_tokenizer, llm_tokenizer, model_args)
     test_loader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False)
