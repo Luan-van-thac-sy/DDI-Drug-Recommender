@@ -132,7 +132,9 @@ class MistralForMedRec(MistralPreTrainedModel):
             output = (pooled_logits,) + transformer_outputs[1:]
             return ((loss,) + output) if loss is not None else output
 
-        transformer_outputs.hidden_states = hidden_states[torch.arange(batch_size, device=logits.device), sequence_lengths]   # output the hidden_states for feature-based KD
+        # Extract the last hidden state and safely cast to fp32, sanitizing NaNs/Infs
+        final_hidden = hidden_states[torch.arange(batch_size, device=logits.device), sequence_lengths]
+        transformer_outputs.hidden_states = torch.nan_to_num(final_hidden.float(), nan=0.0, posinf=1e4, neginf=-1e4)
 
         return SequenceClassifierOutputWithPast(
             loss=loss,

@@ -35,11 +35,16 @@ class Contrastive_Loss(nn.Module):
         X: (bs, hidden_size), Y: (bs, hidden_size)
         tau: the temperature factor
         '''
+        if X.shape[0] == 1:
+            return torch.zeros(1, 1, device=X.device)
+            
         #sim_matrix = X.mm(Y.t())    # (bs, bs)
         sim_matrix = F.cosine_similarity(X.unsqueeze(1), Y.unsqueeze(0), dim=2)
         pos = torch.exp(torch.diag(sim_matrix) / self.tau).unsqueeze(0)   # (1, bs)
         neg = torch.sum(torch.exp(sim_matrix / self.tau), dim=0) - pos     # (1, bs)
-        loss = - torch.log(pos / neg)
+        neg = neg.clamp(min=1e-8) # avoid division by zero
+        # FIX: Use log subtraction instead of division to prevent fp16 overflow
+        loss = -(torch.log(pos) - torch.log(neg))
         loss = loss.view(X.shape[0], -1)
 
         return loss
