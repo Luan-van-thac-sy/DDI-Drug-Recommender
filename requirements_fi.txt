@@ -18,7 +18,6 @@ rdkit
 Requests
 rouge_chinese
 tqdm
-transformers==4.36.2
 trl==0.4.7
 wandb
 peft==0.10.0

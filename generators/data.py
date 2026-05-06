@@ -73,7 +73,12 @@ class EHRTokenizer(object):
         """Converts a sequence of tokens into ids using the vocab."""
         ids = []
         for token in tokens:
-            ids.append(self.vocab.word2idx[token])
+            if token in self.vocab.word2idx:
+                ids.append(self.vocab.word2idx[token])
+            elif '[UNK]' in self.vocab.word2idx:
+                ids.append(self.vocab.word2idx['[UNK]'])
+            elif '[PAD]' in self.vocab.word2idx:
+                ids.append(self.vocab.word2idx['[PAD]'])
         return ids
 
 
@@ -89,7 +94,8 @@ class EHRTokenizer(object):
         """Converts a sequence of ids in wordpiece tokens using the vocab."""
         ids = []
         for i in tokens:
-            ids.append(self.med_voc.word2idx[i])
+            if i in self.med_voc.word2idx:
+                ids.append(self.med_voc.word2idx[i])
         return ids
     
 
