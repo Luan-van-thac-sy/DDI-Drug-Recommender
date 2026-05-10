@@ -14,6 +14,7 @@ import argparse
 from torch.utils.data import DataLoader
 from transformers import AutoTokenizer
 from tqdm import tqdm
+from sklearn.metrics import average_precision_score
 from generators.distill_generator import DistillEHRDataset
 from models.LEADER import LEADER
 from utils.config import BertConfig
@@ -168,13 +169,15 @@ def main():
     print("\n" + "=" * 70)
     print("=== WITHOUT Post-hoc DDI Constraint ===")
     print("=" * 70)
-    print(f"{'Thresh':>6} | {'Jaccard':>7} | {'F1':>6} | {'Prec':>6} | {'Recall':>6} | {'DDI':>6} | {'AvgDrugs':>8}")
+    print(f"{'Thresh':>6} | {'Jaccard':>7} | {'F1':>6} | {'PRAUC':>6} | {'Prec':>6} | {'Recall':>6} | {'DDI':>6} | {'AvgDrugs':>8}")
     print("-" * 70)
 
     for t in [0.3, 0.35, 0.4, 0.45, 0.5, 0.6]:
         pred_bin = (all_preds > t).astype(int)
-        jac, prec, rec, f1, ddi_rate, avg_d = calc_metrics(pred_bin, all_labels, ddi_adj)
-        print(f"{t:>6.2f} | {jac:>7.4f} | {f1:>6.4f} | {prec:>6.4f} | {rec:>6.4f} | {ddi_rate:>6.4f} | {avg_d:>8.1f}")
+        jac, prec, rec, f1, prauc, ddi_rate, avg_d = calc_metrics(
+            pred_bin, all_labels, ddi_adj, pred_scores=all_preds
+        )
+        print(f"{t:>6.2f} | {jac:>7.4f} | {f1:>6.4f} | {prauc:>6.4f} | {prec:>6.4f} | {rec:>6.4f} | {ddi_rate:>6.4f} | {avg_d:>8.1f}")
 
     # === Results WITH post-hoc ===
     if args.posthoc_mode == "budget":
@@ -185,7 +188,7 @@ def main():
             )
             print("=" * 70)
             print(
-                f"{'Thresh':>6} | {'Jaccard':>7} | {'F1':>6} | {'Prec':>6} | {'Recall':>6} | {'DDI':>6} | {'AvgDrugs':>8}"
+                f"{'Thresh':>6} | {'Jaccard':>7} | {'F1':>6} | {'PRAUC':>6} | {'Prec':>6} | {'Recall':>6} | {'DDI':>6} | {'AvgDrugs':>8}"
             )
             print("-" * 70)
 
@@ -199,29 +202,31 @@ def main():
                     refill=not args.no_refill,
                     refill_min_prob_ratio=args.refill_min_prob_ratio,
                 )
-                jac, prec, rec, f1, ddi_rate, avg_d = calc_metrics(
-                    pred_bin, all_labels, ddi_adj
+                masked_scores = all_preds * pred_bin
+                jac, prec, rec, f1, prauc, ddi_rate, avg_d = calc_metrics(
+                    pred_bin, all_labels, ddi_adj, pred_scores=masked_scores
                 )
                 print(
-                    f"{t:>6.2f} | {jac:>7.4f} | {f1:>6.4f} | {prec:>6.4f} | {rec:>6.4f} | {ddi_rate:>6.4f} | {avg_d:>8.1f}"
+                    f"{t:>6.2f} | {jac:>7.4f} | {f1:>6.4f} | {prauc:>6.4f} | {prec:>6.4f} | {rec:>6.4f} | {ddi_rate:>6.4f} | {avg_d:>8.1f}"
                 )
     else:
         print("\n" + "=" * 70)
         print("=== WITH Post-hoc DDI Constraint (ZERO-DDI) ===")
         print("=" * 70)
         print(
-            f"{'Thresh':>6} | {'Jaccard':>7} | {'F1':>6} | {'Prec':>6} | {'Recall':>6} | {'DDI':>6} | {'AvgDrugs':>8}"
+            f"{'Thresh':>6} | {'Jaccard':>7} | {'F1':>6} | {'PRAUC':>6} | {'Prec':>6} | {'Recall':>6} | {'DDI':>6} | {'AvgDrugs':>8}"
         )
         print("-" * 70)
 
         for t in [0.3, 0.35, 0.4, 0.45, 0.5, 0.6]:
             pred_bin = (all_preds > t).astype(int)
             pred_bin = apply_ddi_posthoc(pred_bin, all_preds, ddi_adj)
-            jac, prec, rec, f1, ddi_rate, avg_d = calc_metrics(
-                pred_bin, all_labels, ddi_adj
+            masked_scores = all_preds * pred_bin
+            jac, prec, rec, f1, prauc, ddi_rate, avg_d = calc_metrics(
+                pred_bin, all_labels, ddi_adj, pred_scores=masked_scores
             )
             print(
-                f"{t:>6.2f} | {jac:>7.4f} | {f1:>6.4f} | {prec:>6.4f} | {rec:>6.4f} | {ddi_rate:>6.4f} | {avg_d:>8.1f}"
+                f"{t:>6.2f} | {jac:>7.4f} | {f1:>6.4f} | {prauc:>6.4f} | {prec:>6.4f} | {rec:>6.4f} | {ddi_rate:>6.4f} | {avg_d:>8.1f}"
             )
 
 
@@ -248,22 +253,41 @@ def apply_ddi_posthoc(pred_bin, pred_probs, ddi_adj):
     return pred_bin
 
 
-def calc_metrics(pred_bin, labels, ddi_adj):
-    """Calculate Jaccard, F1, Precision, Recall, DDI rate, avg drugs."""
+def calc_metrics(pred_bin, labels, ddi_adj, pred_scores=None):
+    """Calculate Jaccard, F1, Precision, Recall, PRAUC, DDI rate, avg drugs.
+
+    Notes:
+      - PRAUC here follows the project's historical evaluation style: sample-wise
+        average precision over the label-ranking within each visit.
+      - If `pred_scores` is None, PRAUC falls back to 0.0.
+    """
     jaccards = []
     precisions = []
     recalls = []
-    for p, l in zip(pred_bin, labels):
+    praucs = []
+    if pred_scores is None:
+        pred_scores = [None] * len(pred_bin)
+
+    for p, l, s in zip(pred_bin, labels, pred_scores):
         inter = (p * l).sum()
         union = ((p + l) > 0).sum()
         jaccards.append(inter / max(union, 1))
         precisions.append(inter / max(p.sum(), 1))
         recalls.append(inter / max(l.sum(), 1))
+        # Sample-wise PRAUC (matches project's evaluation style)
+        if s is None:
+            praucs.append(0.0)
+        else:
+            try:
+                praucs.append(average_precision_score(l, s))
+            except Exception:
+                praucs.append(0.0)
 
     jac = np.mean(jaccards)
     prec = np.mean(precisions)
     rec = np.mean(recalls)
     f1 = 2 * prec * rec / max(prec + rec, 1e-8)
+    prauc = float(np.mean(praucs)) if praucs else 0.0
 
     total_ddi, total_pairs = 0, 0
     for p in pred_bin:
@@ -276,7 +300,7 @@ def calc_metrics(pred_bin, labels, ddi_adj):
     ddi_rate = total_ddi / max(total_pairs, 1)
     avg_d = np.mean([p.sum() for p in pred_bin])
 
-    return jac, prec, rec, f1, ddi_rate, avg_d
+    return jac, prec, rec, f1, prauc, ddi_rate, avg_d
 
 
 if __name__ == "__main__":
