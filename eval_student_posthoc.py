@@ -44,6 +44,24 @@ def parse_args():
         help="Target DDI rate for budget mode (default: LEADER baseline 0.0675).",
     )
     parser.add_argument(
+        "--target_ddi_min",
+        type=float,
+        default=None,
+        help="(Optional) Sweep budget mode: min target DDI rate (overrides --target_ddi_rate).",
+    )
+    parser.add_argument(
+        "--target_ddi_max",
+        type=float,
+        default=None,
+        help="(Optional) Sweep budget mode: max target DDI rate (overrides --target_ddi_rate).",
+    )
+    parser.add_argument(
+        "--target_ddi_step",
+        type=float,
+        default=None,
+        help="(Optional) Sweep budget mode: step for target DDI rate (overrides --target_ddi_rate).",
+    )
+    parser.add_argument(
         "--min_keep",
         type=int,
         default=1,
@@ -61,6 +79,31 @@ def parse_args():
         help="In budget mode, only refill candidates with prob >= threshold * ratio.",
     )
     return parser.parse_args()
+
+
+def _build_target_ddi_rates(args):
+    sweep_args = (args.target_ddi_min, args.target_ddi_max, args.target_ddi_step)
+    if any(v is not None for v in sweep_args):
+        if any(v is None for v in sweep_args):
+            raise ValueError(
+                "When using --target_ddi_min/--target_ddi_max/--target_ddi_step, you must provide all three."
+            )
+        if args.target_ddi_step == 0:
+            raise ValueError("--target_ddi_step must be non-zero.")
+
+        step = abs(float(args.target_ddi_step))
+        start = float(args.target_ddi_min)
+        end = float(args.target_ddi_max)
+        step = step if start <= end else -step
+
+        # Inclusive arange (handles both ascending and descending).
+        rates = list(np.arange(start, end + (1e-9 if step > 0 else -1e-9), step))
+        rates = [round(float(r), 4) for r in rates]
+        if not rates:
+            rates = [round(start, 4)]
+        return rates
+
+    return [round(float(args.target_ddi_rate), 4)]
 
 
 def main():
@@ -119,6 +162,8 @@ def main():
     all_labels = np.concatenate(all_labels, axis=0)
     print(f"Test samples: {len(all_preds)}")
 
+    target_ddi_rates = _build_target_ddi_rates(args)
+
     # === Results WITHOUT post-hoc ===
     print("\n" + "=" * 70)
     print("=== WITHOUT Post-hoc DDI Constraint ===")
@@ -132,33 +177,52 @@ def main():
         print(f"{t:>6.2f} | {jac:>7.4f} | {f1:>6.4f} | {prec:>6.4f} | {rec:>6.4f} | {ddi_rate:>6.4f} | {avg_d:>8.1f}")
 
     # === Results WITH post-hoc ===
-    print("\n" + "=" * 70)
     if args.posthoc_mode == "budget":
-        print(
-            f"=== WITH Post-hoc DDI Constraint (BUDGET: target_ddi_rate={args.target_ddi_rate:.4f}) ==="
-        )
-    else:
-        print("=== WITH Post-hoc DDI Constraint (ZERO-DDI) ===")
-    print("=" * 70)
-    print(f"{'Thresh':>6} | {'Jaccard':>7} | {'F1':>6} | {'Prec':>6} | {'Recall':>6} | {'DDI':>6} | {'AvgDrugs':>8}")
-    print("-" * 70)
-
-    for t in [0.3, 0.35, 0.4, 0.45, 0.5, 0.6]:
-        if args.posthoc_mode == "budget":
-            pred_bin = apply_ddi_constraints_budget(
-                all_preds,
-                ddi_adj,
-                threshold=t,
-                target_ddi_rate=args.target_ddi_rate,
-                min_keep=args.min_keep,
-                refill=not args.no_refill,
-                refill_min_prob_ratio=args.refill_min_prob_ratio,
+        for rate in target_ddi_rates:
+            print("\n" + "=" * 70)
+            print(
+                f"=== WITH Post-hoc DDI Constraint (BUDGET: target_ddi_rate={rate:.4f}) ==="
             )
-        else:
+            print("=" * 70)
+            print(
+                f"{'Thresh':>6} | {'Jaccard':>7} | {'F1':>6} | {'Prec':>6} | {'Recall':>6} | {'DDI':>6} | {'AvgDrugs':>8}"
+            )
+            print("-" * 70)
+
+            for t in [0.3, 0.35, 0.4, 0.45, 0.5, 0.6]:
+                pred_bin = apply_ddi_constraints_budget(
+                    all_preds,
+                    ddi_adj,
+                    threshold=t,
+                    target_ddi_rate=rate,
+                    min_keep=args.min_keep,
+                    refill=not args.no_refill,
+                    refill_min_prob_ratio=args.refill_min_prob_ratio,
+                )
+                jac, prec, rec, f1, ddi_rate, avg_d = calc_metrics(
+                    pred_bin, all_labels, ddi_adj
+                )
+                print(
+                    f"{t:>6.2f} | {jac:>7.4f} | {f1:>6.4f} | {prec:>6.4f} | {rec:>6.4f} | {ddi_rate:>6.4f} | {avg_d:>8.1f}"
+                )
+    else:
+        print("\n" + "=" * 70)
+        print("=== WITH Post-hoc DDI Constraint (ZERO-DDI) ===")
+        print("=" * 70)
+        print(
+            f"{'Thresh':>6} | {'Jaccard':>7} | {'F1':>6} | {'Prec':>6} | {'Recall':>6} | {'DDI':>6} | {'AvgDrugs':>8}"
+        )
+        print("-" * 70)
+
+        for t in [0.3, 0.35, 0.4, 0.45, 0.5, 0.6]:
             pred_bin = (all_preds > t).astype(int)
             pred_bin = apply_ddi_posthoc(pred_bin, all_preds, ddi_adj)
-        jac, prec, rec, f1, ddi_rate, avg_d = calc_metrics(pred_bin, all_labels, ddi_adj)
-        print(f"{t:>6.2f} | {jac:>7.4f} | {f1:>6.4f} | {prec:>6.4f} | {rec:>6.4f} | {ddi_rate:>6.4f} | {avg_d:>8.1f}")
+            jac, prec, rec, f1, ddi_rate, avg_d = calc_metrics(
+                pred_bin, all_labels, ddi_adj
+            )
+            print(
+                f"{t:>6.2f} | {jac:>7.4f} | {f1:>6.4f} | {prec:>6.4f} | {rec:>6.4f} | {ddi_rate:>6.4f} | {avg_d:>8.1f}"
+            )
 
 
 def apply_ddi_posthoc(pred_bin, pred_probs, ddi_adj):
