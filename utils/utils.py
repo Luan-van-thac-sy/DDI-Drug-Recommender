@@ -274,6 +274,143 @@ def apply_ddi_constraints(y_prob, ddi_A, threshold=0.5, max_iterations=10):
     return y_pred_constrained
 
 
+def _count_ddi_pairs(drug_indices, ddi_A):
+    """Count DDI pairs within a set/list of drug indices."""
+    if len(drug_indices) < 2:
+        return 0
+    ddi_pairs = 0
+    drug_indices = list(drug_indices)
+    for i, med_i in enumerate(drug_indices):
+        for j in range(i + 1, len(drug_indices)):
+            med_j = drug_indices[j]
+            if ddi_A[med_i, med_j] == 1 or ddi_A[med_j, med_i] == 1:
+                ddi_pairs += 1
+    return ddi_pairs
+
+
+def _ddi_degree_map(drug_indices, ddi_A):
+    """Return {drug_idx: ddi_degree} for the given set/list."""
+    drug_indices = list(drug_indices)
+    degree = {d: 0 for d in drug_indices}
+    for i, med_i in enumerate(drug_indices):
+        for j in range(i + 1, len(drug_indices)):
+            med_j = drug_indices[j]
+            if ddi_A[med_i, med_j] == 1 or ddi_A[med_j, med_i] == 1:
+                degree[med_i] += 1
+                degree[med_j] += 1
+    return degree
+
+
+def apply_ddi_constraints_budget(
+    y_prob,
+    ddi_A,
+    threshold=0.5,
+    target_ddi_rate=0.0675,
+    max_iterations=50,
+    min_keep=1,
+    refill=True,
+    refill_min_prob_ratio=0.5,
+):
+    """Apply post-hoc DDI constraints with a *budget* instead of forcing DDI=0.
+
+    Goal: reduce DDI while preserving recall by avoiding over-pruning.
+
+    For each sample:
+      1) Start from predictions above `threshold` (fallback to top-1).
+      2) Compute a per-sample allowed DDI pair budget:
+         budget_pairs = floor(target_ddi_rate * C(n, 2)), n = |S0|
+      3) If current DDI pairs > budget_pairs, iteratively remove a drug with high
+         DDI degree and low probability, until within budget or min_keep reached.
+      4) Optionally refill by adding high-probability candidates while keeping
+         DDI pairs within the budget (allows some DDI, up to budget).
+
+    Args:
+        y_prob: (num_samples, num_drugs) probabilities.
+        ddi_A: (num_drugs, num_drugs) adjacency (0/1).
+        threshold: prediction threshold for initial set.
+        target_ddi_rate: desired DDI rate (e.g., LEADER baseline).
+        max_iterations: safety cap for the pruning loop.
+        min_keep: minimum number of drugs to keep after pruning.
+        refill: whether to add drugs back under budget.
+        refill_min_prob_ratio: only consider refill candidates with prob >= threshold * ratio.
+
+    Returns:
+        y_pred_constrained: binary numpy array (num_samples, num_drugs).
+    """
+    y_prob = np.asarray(y_prob)
+    ddi_A = np.asarray(ddi_A)
+
+    num_samples, num_drugs = y_prob.shape
+    y_pred_constrained = np.zeros((num_samples, num_drugs), dtype=np.int32)
+
+    eps = 1e-8
+    for sample_idx in range(num_samples):
+        probs = y_prob[sample_idx]
+        initial_pred = np.where(probs > threshold)[0].tolist()
+
+        if len(initial_pred) == 0:
+            top_idx = int(np.argmax(probs))
+            if probs[top_idx] > 0:
+                y_pred_constrained[sample_idx, top_idx] = 1
+            continue
+
+        n0 = len(initial_pred)
+        total_pairs0 = n0 * (n0 - 1) // 2
+        budget_pairs = int(np.floor(float(target_ddi_rate) * float(total_pairs0)))
+        budget_pairs = max(budget_pairs, 0)
+
+        current = set(initial_pred)
+        current_ddi_pairs = _count_ddi_pairs(current, ddi_A)
+
+        it = 0
+        while current_ddi_pairs > budget_pairs and len(current) > max(int(min_keep), 1) and it < max_iterations:
+            ddi_degree = _ddi_degree_map(current, ddi_A)
+            # Remove drug with highest (ddi_degree / prob) to keep high-prob meds.
+            drug_to_remove = max(
+                ddi_degree.keys(),
+                key=lambda d: (ddi_degree[d] / (float(probs[d]) + eps), ddi_degree[d], -float(probs[d])),
+            )
+            current.discard(drug_to_remove)
+            current_ddi_pairs = _count_ddi_pairs(current, ddi_A)
+            it += 1
+
+        if refill and len(current) > 0:
+            # Try to recover size toward n0 under the same DDI budget.
+            target_size = n0
+            min_prob = float(threshold) * float(refill_min_prob_ratio)
+
+            # Candidate ranking: high prob first.
+            candidate_order = np.argsort(probs)[::-1]
+            for drug_idx in candidate_order:
+                if len(current) >= target_size:
+                    break
+                drug_idx = int(drug_idx)
+                if drug_idx in current:
+                    continue
+                if float(probs[drug_idx]) < min_prob:
+                    break
+
+                # Incremental DDI pairs added by this drug.
+                inc = 0
+                for existing in current:
+                    if ddi_A[existing, drug_idx] == 1 or ddi_A[drug_idx, existing] == 1:
+                        inc += 1
+                        if current_ddi_pairs + inc > budget_pairs:
+                            break
+                if current_ddi_pairs + inc <= budget_pairs:
+                    current.add(drug_idx)
+                    current_ddi_pairs += inc
+
+        for drug_idx in current:
+            y_pred_constrained[sample_idx, drug_idx] = 1
+
+        if y_pred_constrained[sample_idx].sum() == 0:
+            top_idx = int(np.argmax(probs))
+            y_pred_constrained[sample_idx, top_idx] = 1
+
+    return y_pred_constrained
+
+
 def metric_report(logger, y_pred, y_true, therhold=0.5, ddi_graph=None):
     # Replace NaN/Inf with 0 to prevent metric crashes
     if np.any(np.isnan(y_pred)) or np.any(np.isinf(y_pred)):

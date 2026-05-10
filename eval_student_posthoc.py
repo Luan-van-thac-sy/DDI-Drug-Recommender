@@ -18,7 +18,7 @@ from generators.distill_generator import DistillEHRDataset
 from models.LEADER import LEADER
 from utils.config import BertConfig
 from generators.data import EHRTokenizer
-from utils.utils import read_jsonlines
+from utils.utils import read_jsonlines, apply_ddi_constraints_budget
 
 
 def parse_args():
@@ -30,6 +30,36 @@ def parse_args():
     parser.add_argument("--batch_size", type=int, default=64)
     parser.add_argument("--hidden_size", type=int, default=64)
     parser.add_argument("--gpu_id", type=int, default=0)
+    parser.add_argument(
+        "--posthoc_mode",
+        type=str,
+        default="budget",
+        choices=["budget", "zero"],
+        help="Post-hoc mode: 'budget' (target DDI rate) or 'zero' (force DDI=0).",
+    )
+    parser.add_argument(
+        "--target_ddi_rate",
+        type=float,
+        default=0.0675,
+        help="Target DDI rate for budget mode (default: LEADER baseline 0.0675).",
+    )
+    parser.add_argument(
+        "--min_keep",
+        type=int,
+        default=1,
+        help="Minimum number of drugs to keep per sample during post-hoc pruning.",
+    )
+    parser.add_argument(
+        "--no_refill",
+        action="store_true",
+        help="Disable refill/swap step in budget mode.",
+    )
+    parser.add_argument(
+        "--refill_min_prob_ratio",
+        type=float,
+        default=0.5,
+        help="In budget mode, only refill candidates with prob >= threshold * ratio.",
+    )
     return parser.parse_args()
 
 
@@ -103,14 +133,30 @@ def main():
 
     # === Results WITH post-hoc ===
     print("\n" + "=" * 70)
-    print("=== WITH Post-hoc DDI Constraint ===")
+    if args.posthoc_mode == "budget":
+        print(
+            f"=== WITH Post-hoc DDI Constraint (BUDGET: target_ddi_rate={args.target_ddi_rate:.4f}) ==="
+        )
+    else:
+        print("=== WITH Post-hoc DDI Constraint (ZERO-DDI) ===")
     print("=" * 70)
     print(f"{'Thresh':>6} | {'Jaccard':>7} | {'F1':>6} | {'Prec':>6} | {'Recall':>6} | {'DDI':>6} | {'AvgDrugs':>8}")
     print("-" * 70)
 
     for t in [0.3, 0.35, 0.4, 0.45, 0.5, 0.6]:
-        pred_bin = (all_preds > t).astype(int)
-        pred_bin = apply_ddi_posthoc(pred_bin, all_preds, ddi_adj)
+        if args.posthoc_mode == "budget":
+            pred_bin = apply_ddi_constraints_budget(
+                all_preds,
+                ddi_adj,
+                threshold=t,
+                target_ddi_rate=args.target_ddi_rate,
+                min_keep=args.min_keep,
+                refill=not args.no_refill,
+                refill_min_prob_ratio=args.refill_min_prob_ratio,
+            )
+        else:
+            pred_bin = (all_preds > t).astype(int)
+            pred_bin = apply_ddi_posthoc(pred_bin, all_preds, ddi_adj)
         jac, prec, rec, f1, ddi_rate, avg_d = calc_metrics(pred_bin, all_labels, ddi_adj)
         print(f"{t:>6.2f} | {jac:>7.4f} | {f1:>6.4f} | {prec:>6.4f} | {rec:>6.4f} | {ddi_rate:>6.4f} | {avg_d:>8.1f}")
 

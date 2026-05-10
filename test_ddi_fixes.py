@@ -192,6 +192,59 @@ def test_squeeze_batch_size_1():
              f"shape={ddi_loss.shape}")
 
 
+def _count_ddi_pairs_binary(pred_bin, ddi_adj):
+    drugs = np.where(pred_bin == 1)[0].tolist()
+    cnt = 0
+    for i in range(len(drugs)):
+        for j in range(i + 1, len(drugs)):
+            a, b = drugs[i], drugs[j]
+            if ddi_adj[a, b] == 1 or ddi_adj[b, a] == 1:
+                cnt += 1
+    return cnt
+
+
+def test_posthoc_ddi_budget():
+    """Budgeted post-hoc should reduce DDI without forcing it to zero."""
+    print("\n[5] Post-hoc DDI Budget (Non-zero allowed)")
+
+    sys.path.insert(0, ".")
+    from utils.utils import apply_ddi_constraints_budget
+
+    V = 6
+    ddi_adj = np.zeros((V, V), dtype=np.int32)
+    # Triangle DDI among 0,1,2
+    for a, b in [(0, 1), (0, 2), (1, 2)]:
+        ddi_adj[a, b] = 1
+        ddi_adj[b, a] = 1
+
+    # One sample: top probs for 0,1,2,3 above threshold=0.5
+    y_prob = np.array([[0.9, 0.85, 0.8, 0.7, 0.2, 0.1]])
+
+    # Case A: budget is loose => keep initial set, DDI remains (not forced to 0)
+    pred_loose = apply_ddi_constraints_budget(
+        y_prob, ddi_adj, threshold=0.5, target_ddi_rate=0.5, min_keep=1, refill=False
+    )
+    ddi_pairs_loose = _count_ddi_pairs_binary(pred_loose[0], ddi_adj)
+    test(
+        "Loose budget keeps some DDI (not forced to 0)",
+        ddi_pairs_loose > 0,
+        f"ddi_pairs={ddi_pairs_loose}",
+    )
+
+    # Case B: tighter budget => reduce DDI pairs <= budget
+    pred_tight = apply_ddi_constraints_budget(
+        y_prob, ddi_adj, threshold=0.5, target_ddi_rate=0.1, min_keep=2, refill=False
+    )
+    # initial size n0=4 => total_pairs=6 => budget_pairs=floor(0.1*6)=0
+    ddi_pairs_tight = _count_ddi_pairs_binary(pred_tight[0], ddi_adj)
+    test(
+        "Tight budget reduces DDI pairs to <= budget",
+        ddi_pairs_tight == 0,
+        f"ddi_pairs={ddi_pairs_tight}",
+    )
+    test("Respects min_keep=2", pred_tight[0].sum() >= 2, f"kept={pred_tight[0].sum()}")
+
+
 if __name__ == "__main__":
     print("=" * 50)
     print("DDI Fix Verification Tests")
@@ -201,6 +254,7 @@ if __name__ == "__main__":
     test_gradient_clipping_prevents_nan()
     test_metric_report_nan_guard()
     test_squeeze_batch_size_1()
+    test_posthoc_ddi_budget()
 
     print("\n" + "=" * 50)
     print(f"Results: {PASS} passed, {FAIL} failed")
