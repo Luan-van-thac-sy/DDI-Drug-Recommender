@@ -172,7 +172,7 @@ def main():
     print(f"{'Thresh':>6} | {'Jaccard':>7} | {'F1':>6} | {'PRAUC':>6} | {'Prec':>6} | {'Recall':>6} | {'DDI':>6} | {'AvgDrugs':>8}")
     print("-" * 70)
 
-    for t in [0.3, 0.35, 0.4, 0.45, 0.5, 0.6]:
+    for t in np.arange(0.25, 0.351, 0.01):
         pred_bin = (all_preds > t).astype(int)
         jac, prec, rec, f1, prauc, ddi_rate, avg_d = calc_metrics(
             pred_bin, all_labels, ddi_adj, pred_scores=all_preds
@@ -192,7 +192,8 @@ def main():
             )
             print("-" * 70)
 
-            for t in [0.3, 0.35, 0.4, 0.45, 0.5, 0.6]:
+            for t in np.arange(0.25, 0.351, 0.01):
+
                 pred_bin = apply_ddi_constraints_budget(
                     all_preds,
                     ddi_adj,
