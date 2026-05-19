@@ -90,12 +90,21 @@ class EHRTokenizer(object):
         return tokens
     
 
-    def convert_med_tokens_to_ids(self, tokens):
-        """Converts a sequence of ids in wordpiece tokens using the vocab."""
+    def convert_med_tokens_to_ids(self, tokens, strict=False):
+        """Map medication tokens (e.g. DrugBank IDs) to med_voc indices.
+
+        Tokens missing from med_voc — including ATC strings like ``G01A`` when
+        the vocabulary is DrugBank-only — are skipped (no KeyError) unless
+        ``strict=True``.
+        """
+        if tokens is None:
+            return []
         ids = []
         for i in tokens:
             if i in self.med_voc.word2idx:
                 ids.append(self.med_voc.word2idx[i])
+            elif strict:
+                raise KeyError(i)
         return ids
     
 

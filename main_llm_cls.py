@@ -33,6 +33,30 @@ from evaluate import evaluate_jsonlines
 import time
 
 
+def _extract_state_dict(ckpt_obj):
+    if isinstance(ckpt_obj, dict):
+        for key in ("state_dict", "model", "module"):
+            if key in ckpt_obj and isinstance(ckpt_obj[key], dict):
+                return ckpt_obj[key]
+    return ckpt_obj
+
+
+def _load_distill_checkpoint(model, ckpt_path):
+    if ckpt_path is None:
+        return
+    if not os.path.exists(ckpt_path):
+        raise FileNotFoundError(f"distill checkpoint not found: {ckpt_path}")
+    print(f"Loading distill checkpoint from: {ckpt_path}")
+    ckpt_obj = torch.load(ckpt_path, map_location="cpu")
+    state_dict = _extract_state_dict(ckpt_obj)
+    incompatible = model.load_state_dict(state_dict, strict=False)
+    print(
+        "Distill checkpoint loaded. "
+        f"missing_keys={len(incompatible.missing_keys)}, "
+        f"unexpected_keys={len(incompatible.unexpected_keys)}"
+    )
+
+
 # save model for PeftModel
 class SavePeftModelCallback(TrainerCallback):
     def on_save(
@@ -84,12 +108,15 @@ def train():
         torch_dtype=torch.float16,
     )
 
-    if model_args.peft_path is not None:    # for test model
+    if model_args.peft_path is not None:    # for LoRA model
         # Resume_training
         if training_args.resume_from_checkpoint is not None:
             model = PeftModelForCLS.from_pretrained(model, model_args.peft_path, is_trainable=True)
         else:
             model = PeftModelForCLS.from_pretrained(model, model_args.peft_path, is_trainable=False)
+    elif model_args.distill_ckpt_path is not None and training_args.do_predict:
+        # For distill inference: keep base model architecture and load distill weights
+        _load_distill_checkpoint(model, model_args.distill_ckpt_path)
     else:   # for train model
         # Load Lora Config
         peft_config = LoraConfig(
@@ -102,11 +129,21 @@ def train():
 
         model = PeftModelForCLS(model, peft_config)  # LoRA wrapped llama
 
+        # Optional: allow loading distill checkpoint for continued training/fine-tuning
+        if model_args.distill_ckpt_path is not None:
+            _load_distill_checkpoint(model, model_args.distill_ckpt_path)
+
     if training_args.do_train:
         for name, param in model.named_parameters():    # activate the CLS head parameters
             if "cls_head" in name:
                 param.requires_grad = True
-    model.print_trainable_parameters()
+    if hasattr(model, "print_trainable_parameters"):
+        model.print_trainable_parameters()
+    else:
+        trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
+        total = sum(p.numel() for p in model.parameters())
+        pct = 100.0 * trainable / total if total else 0.0
+        print(f"trainable params: {trainable} || all params: {total} || trainable%: {pct:.4f}")
 
     ## Load Tokenizer ##
     tokenizer = AutoTokenizer.from_pretrained(
@@ -220,7 +257,7 @@ def train():
                     res = json.dumps(samp, ensure_ascii=False)
                     writer.write(f"{res}\n")
 
-            ja, prauc, avg_p, avg_r, avg_f1, drug_code_results = evaluate_jsonlines(output_prediction_file, ehr_tokenizer)   # output the MedRec metrics
+            ja, prauc, avg_p, avg_r, avg_f1, drug_code_results = evaluate_jsonlines(output_prediction_file, ehr_tokenizer,ddi_path=data_args.ddi_path)   # output the MedRec metrics
 
             # Save drug codes to files (both JSON and CSV)
             drug_codes_json_file = os.path.join(training_args.output_dir, "drug_codes_comparison.json")
@@ -267,5 +304,4 @@ def train():
 if __name__ == "__main__":
 
     train()
-
 

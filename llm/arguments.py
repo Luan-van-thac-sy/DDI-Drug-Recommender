@@ -67,6 +67,10 @@ class ModelArguments:
     modules_to_save: Optional[str] = field(default='embed_tokens,lm_head')
     debug_mode: Optional[bool] = field(default=False)
     peft_path: Optional[str] = field(default=None)
+    distill_ckpt_path: Optional[str] = field(
+        default=None,
+        metadata={"help": "Path to distill checkpoint .bin for loading full model weights."},
+    )
     classification: Optional[bool] = field(default=False)
 
 
@@ -233,4 +237,3 @@ class DataTrainingArguments:
                 assert extension in ["csv", "json"], "`validation_file` should be a csv or a json file."
         if self.val_max_target_length is None:
             self.val_max_target_length = self.max_target_length
-

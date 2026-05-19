@@ -1,5 +1,8 @@
 # here put the import lib
+import argparse
 import copy
+import csv
+import json
 import os
 import pickle
 import numpy as np
@@ -7,7 +10,7 @@ from utils.utils import read_jsonlines, multi_label_metric, ddi_rate_score, mult
 from generators.data import Voc, EHRTokenizer
 
 
-def evaluate_jsonlines(data_path, ehr_tokenizer, threshold=0.5, ddi_path='./data/mimic3/handled/full/'):
+def evaluate_jsonlines(data_path, ehr_tokenizer, threshold=0.5, ddi_path='./data/mimic4/handled/full/'):
 
     pred_data_prob, pred_data = [], []
     true_data = np.zeros((len(read_jsonlines(data_path)), len(ehr_tokenizer.med_voc.word2idx)))
@@ -101,6 +104,36 @@ def evaluate_jsonlines(data_path, ehr_tokenizer, threshold=0.5, ddi_path='./data
     return ja, prauc, avg_p, avg_r, avg_f1, drug_code_results
 
 
+def save_drug_codes_comparison(drug_code_results, output_dir):
+    """Write drug_codes_comparison.json + .csv (same layout as main_llm_cls predict)."""
+    os.makedirs(output_dir, exist_ok=True)
+    json_path = os.path.join(output_dir, "drug_codes_comparison.json")
+    csv_path = os.path.join(output_dir, "drug_codes_comparison.csv")
+
+    with open(json_path, "w", encoding="utf-8") as f:
+        json.dump(drug_code_results, f, indent=2, ensure_ascii=False)
+
+    with open(csv_path, "w", encoding="utf-8", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["subject_id", "true_drug_codes", "pred_drug_codes"])
+        for i in range(len(drug_code_results["subject_ids"])):
+            subject_id = drug_code_results["subject_ids"][i]
+            true_codes = "; ".join(sorted(str(x) for x in drug_code_results["true_drug_codes"][i]))
+            pred_codes = "; ".join(sorted(str(x) for x in drug_code_results["pred_drug_codes"][i]))
+            writer.writerow([subject_id, true_codes, pred_codes])
+
+    n = len(drug_code_results["subject_ids"])
+    avg_true = sum(len(codes) for codes in drug_code_results["true_drug_codes"]) / max(n, 1)
+    avg_pred = sum(len(codes) for codes in drug_code_results["pred_drug_codes"]) / max(n, 1)
+
+    print("\n✓ Drug codes saved to:")
+    print(f"   - JSON: {json_path}")
+    print(f"   - CSV:  {csv_path}")
+    print(f"   - Total samples: {n}")
+    print(f"   - Average true drugs per patient: {avg_true:.2f}")
+    print(f"   - Average predicted drugs per patient: {avg_pred:.2f}")
+
+
 def np_sigmoid(x):
     # sigmoid function using numpy
     return 1 / (1+np.exp(-x))
@@ -108,13 +141,43 @@ def np_sigmoid(x):
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Evaluate test_predictions.json and export drug code comparison files.")
+    parser.add_argument(
+        "--pred_path",
+        type=str,
+        default="./results/0105/test_predictions.json",
+        help="JSONL from main_llm_cls predict (must contain target logits + drug_code).",
+    )
+    parser.add_argument(
+        "--voc_dir",
+        type=str,
+        default="data/mimic4/handled/voc_final.pkl",
+        help="Path to voc_final.pkl (must match training/inference vocabulary).",
+    )
+    parser.add_argument("--threshold", type=float, default=0.3, help="Sigmoid threshold for binary predictions.")
+    parser.add_argument(
+        "--ddi_path",
+        type=str,
+        default="data/mimic4/handled/full/",
+        help="Directory containing ddi_A_final.pkl.",
+    )
+    parser.add_argument(
+        "--output_dir",
+        type=str,
+        default=None,
+        help="Where to write drug_codes_comparison.{json,csv}. Default: directory of --pred_path.",
+    )
+    args = parser.parse_args()
 
-    # load diag, proc, med word2id tokenizer
-    voc_dir = "data/mimic3/handled/voc_final.pkl"
-    ehr_tokenizer = EHRTokenizer(voc_dir)
+    out_dir = args.output_dir
+    if out_dir is None:
+        out_dir = os.path.dirname(os.path.abspath(args.pred_path)) or "."
 
-    pred_path = "./results/0105/test_predictions.json"
-
-    evaluate_jsonlines(pred_path, ehr_tokenizer, threshold=0.16)
-
-
+    ehr_tokenizer = EHRTokenizer(args.voc_dir)
+    ja, prauc, avg_p, avg_r, avg_f1, drug_code_results = evaluate_jsonlines(
+        args.pred_path,
+        ehr_tokenizer,
+        threshold=args.threshold,
+        ddi_path=args.ddi_path,
+    )
+    save_drug_codes_comparison(drug_code_results, out_dir)

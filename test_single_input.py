@@ -131,11 +131,8 @@ def test_single_input():
         # Calculate accuracy metrics
         print(f"\n=== METRICS ===")
 
-        # Convert ground truth to indices
-        gt_indices = []
-        for drug_code in ground_truth_drugs:
-            if drug_code in ehr_tokenizer.med_voc.word2idx:
-                gt_indices.append(ehr_tokenizer.med_voc.word2idx[drug_code])
+        # Convert ground truth to indices (unknown tokens e.g. ATC skipped)
+        gt_indices = ehr_tokenizer.convert_med_tokens_to_ids(ground_truth_drugs)
 
         # Calculate precision, recall, F1
         predicted_set = set(predicted_indices)
