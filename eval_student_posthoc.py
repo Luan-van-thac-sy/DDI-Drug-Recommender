@@ -21,6 +21,16 @@ from utils.config import BertConfig
 from generators.data import EHRTokenizer
 from utils.utils import read_jsonlines, apply_ddi_constraints_budget
 
+# Threshold sweep for metric tables (inclusive of THRESHOLD_SWEEP_END).
+THRESHOLD_SWEEP_START = 0.25
+THRESHOLD_SWEEP_END = 0.6
+THRESHOLD_SWEEP_STEP = 0.05
+THRESHOLD_SWEEP = np.arange(
+    THRESHOLD_SWEEP_START,
+    THRESHOLD_SWEEP_END + THRESHOLD_SWEEP_STEP / 2,
+    THRESHOLD_SWEEP_STEP,
+)
+
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -172,7 +182,7 @@ def main():
     print(f"{'Thresh':>6} | {'Jaccard':>7} | {'F1':>6} | {'PRAUC':>6} | {'Prec':>6} | {'Recall':>6} | {'DDI':>6} | {'AvgDrugs':>8}")
     print("-" * 70)
 
-    for t in np.arange(0.25, 0.351, 0.01):
+    for t in THRESHOLD_SWEEP:
         pred_bin = (all_preds > t).astype(int)
         jac, prec, rec, f1, prauc, ddi_rate, avg_d = calc_metrics(
             pred_bin, all_labels, ddi_adj, pred_scores=all_preds
@@ -192,7 +202,7 @@ def main():
             )
             print("-" * 70)
 
-            for t in np.arange(0.25, 0.351, 0.01):
+            for t in THRESHOLD_SWEEP:
 
                 pred_bin = apply_ddi_constraints_budget(
                     all_preds,
@@ -219,7 +229,7 @@ def main():
         )
         print("-" * 70)
 
-        for t in [0.3, 0.35, 0.4, 0.45, 0.5, 0.6]:
+        for t in THRESHOLD_SWEEP:
             pred_bin = (all_preds > t).astype(int)
             pred_bin = apply_ddi_posthoc(pred_bin, all_preds, ddi_adj)
             masked_scores = all_preds * pred_bin
